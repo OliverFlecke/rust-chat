@@ -11,6 +11,7 @@ async fn main() {
     let mut user_input = String::new();
     let stdin = io::stdin();
 
+    // Setup thread to listen for new messages
     spawn(async move {
         while let Ok(frame) = rx.receive().await {
             if let Frame::Text { payload: msg, .. } = frame {
@@ -20,13 +21,29 @@ async fn main() {
     });
 
     while let Ok(_) = stdin.read_line(&mut user_input) {
-        match tx
-            .send_text(user_input.clone().trim_end().to_string())
-            .await
-        {
-            Ok(()) => {}
-            Err(e) => eprintln!("Failed to send message: {e}"),
-        };
+        if user_input.starts_with('/') {
+            match user_input.trim_end() {
+                "/exit" => {
+                    match tx.close(None).await {
+                        Ok(()) => {
+                            println!("Disconnected");
+                            break;
+                        }
+                        Err(e) => eprintln!("Unable to disconnect: {e}"),
+                    };
+                }
+                _ => eprintln!("Unknown command"),
+            };
+        } else {
+            // Send message to server
+            match tx
+                .send_text(user_input.clone().trim_end().to_string())
+                .await
+            {
+                Ok(()) => {}
+                Err(e) => eprintln!("Failed to send message: {e}"),
+            };
+        }
         user_input.clear();
     }
 }
