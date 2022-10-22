@@ -24,11 +24,14 @@ async fn main() {
         .and(users)
         .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| on_connection(socket, users)));
 
+    println!("Starting server at 127.0.0.1:3030");
     warp::serve(server).run(([127, 0, 0, 1], 3030)).await;
 }
 
 async fn on_connection(ws: WebSocket, users: Users) {
     let id = Uuid::new_v4();
+    println!("User {id} connected");
+
     let (mut user_tx, mut user_rx) = ws.split();
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
@@ -73,8 +76,9 @@ async fn broadcast_message(sender_id: Uuid, message: Message, users: &Users) {
         Ok(s) => s,
         Err(_) => return,
     };
+    println!("Broadcasting message: {text}");
 
-    let new_msg = format!("<user#{sender_id}: {text}");
+    let new_msg = format!("<user#{sender_id}>: {text}");
 
     users
         .read()
