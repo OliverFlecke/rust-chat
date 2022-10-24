@@ -3,7 +3,7 @@ use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::{
     io::{self, Error},
-    sync::Arc,
+    sync::Arc, process::exit,
 };
 use tokio::{spawn, sync::Mutex};
 use websockets::{Frame, WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
@@ -31,7 +31,7 @@ async fn handle_signals(mut signals: Signals, tx: Arc<Mutex<WebSocketWriteHalf>>
         match signal {
             SIGTERM | SIGINT | SIGQUIT => {
                 disconnect(&tx).await;
-                return;
+                exit(0);
             }
             _ => unreachable!(),
         }
