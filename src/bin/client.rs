@@ -1,4 +1,5 @@
 use chat_server::Message;
+use clap::Parser;
 use futures::stream::StreamExt;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
@@ -8,14 +9,24 @@ use std::{
     sync::Arc,
 };
 use tokio::{spawn, sync::Mutex};
+use uuid::Uuid;
 use websockets::{Frame, WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
+
+#[derive(Debug, Parser)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[arg(short = 'H', long)]
+    host: String,
+    #[arg(short, long)]
+    username: Option<String>,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let host = "ws://localhost:3030/stream";
-    let username = "Client A".to_string();
+    let args = Args::parse();
+    let username = args.username.unwrap_or_else(|| Uuid::new_v4().to_string());
 
-    let (rx, tx) = WebSocket::connect(host).await.unwrap().split();
+    let (rx, tx) = WebSocket::connect(&args.host).await.unwrap().split();
     let tx = Arc::new(Mutex::new(tx));
 
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT])?;
@@ -66,7 +77,7 @@ async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<Web
                 _ => eprintln!("Unknown command"),
             };
         } else {
-            let msg = Message::new(username.clone(), user_input.trim_end().to_string()  );
+            let msg = Message::new(username.clone(), user_input.trim_end().to_string());
 
             // Send message to server
             let mut tx = tx.lock().await;
