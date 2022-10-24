@@ -1,7 +1,7 @@
-use chat_server::ChatMessage;
+use chat_server::{requests::Register, ChatMessage};
 use clap::Parser;
 use futures::stream::StreamExt;
-use orion::kex::EphemeralClientSession;
+use orion::kex::{EphemeralClientSession, PublicKey};
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::{
@@ -16,27 +16,27 @@ use websockets::{Frame, WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short = 'H', long)]
-    host: String,
+    #[arg(short, long)]
+    server: String,
     #[arg(short, long)]
     username: Option<String>,
-}
-
-struct User {
-    username: String,
-    session: EphemeralClientSession,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    let user = User {
-        username: args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
-        session: EphemeralClientSession::new().unwrap(),
-    };
+    let user = register(
+        args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        &args.server,
+    )
+    .await
+    .expect("user to be registered");
 
-    let (rx, tx) = WebSocket::connect(&args.host).await.unwrap().split();
+    let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = &args.server))
+        .await
+        .unwrap()
+        .split();
     let tx = Arc::new(Mutex::new(tx));
 
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT])?;
@@ -49,6 +49,56 @@ async fn main() -> Result<(), Error> {
     _ = signals_task;
 
     Ok(())
+}
+
+async fn connect_and_login(
+    server: String,
+) -> Result<(WebSocketReadHalf, Arc<Mutex<WebSocketWriteHalf>>), ()> {
+    let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat"))
+        .await
+        .unwrap()
+        .split();
+    let tx = Arc::new(Mutex::new(tx));
+
+    Ok((rx, tx))
+}
+
+/// Register the user at the server with the given username.
+async fn register(username: String, server: &String) -> Result<User, ()> {
+    let session = EphemeralClientSession::new().unwrap();
+    let id = post_register(&username, session.public_key(), server)
+        .await
+        .expect("register to succeed");
+    Ok(User {
+        id,
+        username,
+        session,
+    })
+}
+
+async fn post_register(
+    username: &String,
+    public_key: &PublicKey,
+    server: &String,
+) -> Result<String, ()> {
+    match reqwest::Client::new()
+        .post(format!("http://{server}/register"))
+        .body(serde_json::to_string(&Register::new(username.clone(), public_key)).unwrap())
+        .send()
+        .await
+    {
+        Ok(r) => match r.text().await {
+            Ok(id) => Ok(id),
+            Err(_) => {
+                eprintln!("No user id");
+                Err(())
+            }
+        },
+        Err(e) => {
+            eprintln!("{:?}", e);
+            Err(())
+        }
+    }
 }
 
 async fn handle_signals(mut signals: Signals, tx: Arc<Mutex<WebSocketWriteHalf>>) {
@@ -112,4 +162,11 @@ async fn disconnect(tx: &Arc<Mutex<WebSocketWriteHalf>>) {
         }
         Err(e) => eprintln!("Unable to disconnect: {e}"),
     };
+}
+
+/// Represents the local side of the user.
+struct User {
+    id: String,
+    username: String,
+    session: EphemeralClientSession,
 }

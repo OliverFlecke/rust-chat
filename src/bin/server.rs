@@ -1,7 +1,7 @@
+use chat_server::requests::Register;
 use derive_getters::Getters;
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use orion::kex::PublicKey;
-use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::{
     sync::{mpsc, RwLock},
@@ -17,12 +17,6 @@ use warp::{
 
 type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 
-#[derive(Serialize, Deserialize)]
-struct Register {
-    username: String,
-    public_key: [u8; 32],
-}
-
 #[tokio::main]
 async fn main() {
     let users = Users::default();
@@ -36,12 +30,12 @@ async fn main() {
         .and(user_filter.clone())
         .and_then(register_user);
 
-    let stream = warp::path("stream")
+    let chat = warp::path("chat")
         .and(warp::ws())
         .and(user_filter.clone())
         .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| on_connection(socket, users)));
 
-    let server = register.or(stream);
+    let server = register.or(chat);
 
     println!("Starting server at 127.0.0.1:3030");
     warp::serve(server).run(([127, 0, 0, 1], 3030)).await;
@@ -155,12 +149,12 @@ impl TryFrom<Register> for User {
     type Error = ();
 
     fn try_from(value: Register) -> Result<Self, Self::Error> {
-        match PublicKey::from_slice(&value.public_key) {
+        match PublicKey::from_slice(value.public_key()) {
             Ok(public_key) => {
                 let id = Uuid::new_v4();
                 Ok(User {
                     id,
-                    username: value.username,
+                    username: value.username().clone(),
                     public_key,
                     tx: None,
                 })

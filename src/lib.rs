@@ -1,3 +1,5 @@
+pub mod requests;
+
 use std::fmt::Display;
 
 use derive_getters::Getters;
