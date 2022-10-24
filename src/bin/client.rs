@@ -1,9 +1,11 @@
+use chat_server::Message;
 use futures::stream::StreamExt;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::{
     io::{self, Error},
-    sync::Arc, process::exit,
+    process::exit,
+    sync::Arc,
 };
 use tokio::{spawn, sync::Mutex};
 use websockets::{Frame, WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
@@ -11,6 +13,8 @@ use websockets::{Frame, WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let host = "ws://localhost:3030/stream";
+    let username = "Client A".to_string();
+
     let (rx, tx) = WebSocket::connect(host).await.unwrap().split();
     let tx = Arc::new(Mutex::new(tx));
 
@@ -18,7 +22,7 @@ async fn main() -> Result<(), Error> {
     let handle = signals.handle();
     let signals_task = spawn(handle_signals(signals, tx.clone()));
 
-    run_chat(rx, tx).await;
+    run_chat(username, rx, tx).await;
 
     _ = handle.clone();
     _ = signals_task;
@@ -38,7 +42,7 @@ async fn handle_signals(mut signals: Signals, tx: Arc<Mutex<WebSocketWriteHalf>>
     }
 }
 
-async fn run_chat(mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>) {
+async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>) {
     let mut user_input = String::new();
     let stdin = io::stdin();
 
@@ -46,6 +50,7 @@ async fn run_chat(mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>)
     spawn(async move {
         while let Ok(frame) = rx.receive().await {
             if let Frame::Text { payload: msg, .. } = frame {
+                let msg = Message::deserialize(msg);
                 println!("{}", msg);
             }
         }
@@ -61,12 +66,11 @@ async fn run_chat(mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>)
                 _ => eprintln!("Unknown command"),
             };
         } else {
+            let msg = Message::new(username.clone(), user_input.trim_end().to_string()  );
+
             // Send message to server
             let mut tx = tx.lock().await;
-            match tx
-                .send_text(user_input.clone().trim_end().to_string())
-                .await
-            {
+            match tx.send_text(msg.serialize()).await {
                 Ok(()) => {}
                 Err(e) => {
                     eprintln!("Failed to send message: {e}");

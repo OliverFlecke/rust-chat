@@ -78,7 +78,7 @@ async fn broadcast_message(sender_id: Uuid, message: Message, users: &Users) {
     };
     println!("Broadcasting message: {text}");
 
-    let new_msg = format!("<user#{sender_id}>: {text}");
+    // let new_msg = format!("<user#{sender_id}>: {text}");
 
     users
         .read()
@@ -87,7 +87,7 @@ async fn broadcast_message(sender_id: Uuid, message: Message, users: &Users) {
         .filter(|(&id, _)| id != sender_id)
         .for_each(
             |(_, tx)| {
-                if let Err(_disconnected) = tx.send(Message::text(new_msg.clone())) {}
+                if let Err(_disconnected) = tx.send(Message::text(text.clone())) {}
             },
         )
 }
