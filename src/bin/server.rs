@@ -48,18 +48,11 @@ async fn main() {
 }
 
 async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
-    match PublicKey::from_slice(&register.public_key) {
-        Ok(public_key) => {
-            let id = Uuid::new_v4();
-            users.write().await.insert(
-                id,
-                User {
-                    id,
-                    public_key,
-                    tx: None,
-                },
-            );
-
+    let user: Result<User, ()> = register.try_into();
+    match user {
+        Ok(user) => {
+            let id = user.id().clone();
+            users.write().await.insert(user.id, user);
             println!("User {} registered", id);
 
             Ok(warp::reply::with_status(id.to_string(), StatusCode::OK))
@@ -153,6 +146,26 @@ fn send(text: String, user: &User) {
 #[derive(Debug, Getters)]
 pub struct User {
     id: Uuid,
+    username: String,
     public_key: PublicKey,
     tx: Option<mpsc::UnboundedSender<Message>>,
+}
+
+impl TryFrom<Register> for User {
+    type Error = ();
+
+    fn try_from(value: Register) -> Result<Self, Self::Error> {
+        match PublicKey::from_slice(&value.public_key) {
+            Ok(public_key) => {
+                let id = Uuid::new_v4();
+                Ok(User {
+                    id,
+                    username: value.username,
+                    public_key,
+                    tx: None,
+                })
+            }
+            Err(_) => Err(()),
+        }
+    }
 }
