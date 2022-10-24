@@ -105,13 +105,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
-name = "chat-server"
+name = "chat-client"
 version = "0.1.0"
 dependencies = [
+ "chat-core",
  "clap",
- "derive-getters",
  "futures",
- "futures-util",
  "orion",
  "reqwest",
  "serde",
@@ -119,10 +118,32 @@ dependencies = [
  "signal-hook",
  "signal-hook-tokio",
  "tokio",
+ "uuid",
+ "websockets",
+]
+
+[[package]]
+name = "chat-core"
+version = "0.1.0"
+dependencies = [
+ "derive-getters",
+ "orion",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "chat-server"
+version = "0.1.0"
+dependencies = [
+ "chat-core",
+ "derive-getters",
+ "futures-util",
+ "orion",
+ "tokio",
  "tokio-stream",
  "uuid",
  "warp",
- "websockets",
 ]
 
 [[package]]
@@ -425,9 +446,9 @@ dependencies = [
 
 [[package]]
 name = "h2"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ca32592cf21ac7ccab1825cd87f6c9b3d9022c44d086172ed0966bec8af30be"
+checksum = "5f9f29bc9dda355256b2916cf526ab02ce0aeaaaf2bad60d65ef3f12f11dd0f4"
 dependencies = [
  "bytes",
  "fnv",
@@ -617,9 +638,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.135"
+version = "0.2.136"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68783febc7782c6c5cb401fbda4de5a9898be1762314da0bb2c10ced61f18b0c"
+checksum = "55edcf6c0bb319052dea84732cf99db461780fd5e8d3eb46ab6ff312ab31f197"
 
 [[package]]
 name = "lock_api"

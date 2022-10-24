@@ -1,4 +1,4 @@
-use chat_server::requests::Register;
+use chat_core::requests::Register;
 use derive_getters::Getters;
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use orion::kex::PublicKey;

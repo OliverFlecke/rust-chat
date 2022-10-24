@@ -1,4 +1,4 @@
-use chat_server::{requests::Register, ChatMessage};
+use chat_core::{requests::Register, ChatMessage};
 use clap::Parser;
 use futures::stream::StreamExt;
 use orion::kex::{EphemeralClientSession, PublicKey};
