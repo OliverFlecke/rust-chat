@@ -1,6 +1,7 @@
 use chat_server::ChatMessage;
 use clap::Parser;
 use futures::stream::StreamExt;
+use orion::kex::EphemeralClientSession;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::{
@@ -21,10 +22,19 @@ struct Args {
     username: Option<String>,
 }
 
+struct User {
+    username: String,
+    session: EphemeralClientSession,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
-    let username = args.username.unwrap_or_else(|| Uuid::new_v4().to_string());
+
+    let user = User {
+        username: args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
+        session: EphemeralClientSession::new().unwrap(),
+    };
 
     let (rx, tx) = WebSocket::connect(&args.host).await.unwrap().split();
     let tx = Arc::new(Mutex::new(tx));
@@ -33,7 +43,7 @@ async fn main() -> Result<(), Error> {
     let handle = signals.handle();
     let signals_task = spawn(handle_signals(signals, tx.clone()));
 
-    run_chat(username, rx, tx).await;
+    run_chat(&user, rx, tx).await;
 
     _ = handle.clone();
     _ = signals_task;
@@ -53,7 +63,7 @@ async fn handle_signals(mut signals: Signals, tx: Arc<Mutex<WebSocketWriteHalf>>
     }
 }
 
-async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>) {
+async fn run_chat(user: &User, mut rx: WebSocketReadHalf, tx: Arc<Mutex<WebSocketWriteHalf>>) {
     let mut user_input = String::new();
     let stdin = io::stdin();
 
@@ -77,7 +87,7 @@ async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<Web
                 _ => eprintln!("Unknown command"),
             };
         } else {
-            let msg = ChatMessage::new(username.clone(), user_input.trim_end().to_string());
+            let msg = ChatMessage::new(user.username.clone(), user_input.trim_end().to_string());
 
             // Send message to server
             let mut tx = tx.lock().await;
