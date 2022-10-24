@@ -1,18 +1,29 @@
 use std::fmt::Display;
 
+use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
 
 type UserId = String;
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Message {
+#[derive(Debug, Getters, Serialize, Deserialize)]
+pub struct ChatMessage {
     sender: UserId,
     text: String,
 }
 
-impl Message {
+impl ChatMessage {
+    /// Create a new chat message
+    ///
+    /// Example:
+    /// ```
+    /// use chat_server::ChatMessage;
+    ///
+    /// let msg = ChatMessage::new("username".to_string(), "Hello there!".to_string());
+    /// assert_eq!(msg.sender(), "username");
+    /// assert_eq!(msg.text(), "Hello there!");
+    /// ```
     pub fn new(sender: UserId, text: String) -> Self {
-        Message { sender, text }
+        ChatMessage { sender, text }
     }
 
     pub fn deserialize(text: impl AsRef<str>) -> Self {
@@ -24,8 +35,21 @@ impl Message {
     }
 }
 
-impl Display for Message {
+impl Display for ChatMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "<{}>: {}", self.sender, self.text)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn new() {
+        let msg = ChatMessage::new("username".to_string(), "Hello there!".to_string());
+
+        assert_eq!(msg.sender(), "username");
+        assert_eq!(msg.text(), "Hello there!");
     }
 }

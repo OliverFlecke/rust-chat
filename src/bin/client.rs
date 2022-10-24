@@ -1,4 +1,4 @@
-use chat_server::Message;
+use chat_server::ChatMessage;
 use clap::Parser;
 use futures::stream::StreamExt;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
@@ -61,7 +61,7 @@ async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<Web
     spawn(async move {
         while let Ok(frame) = rx.receive().await {
             if let Frame::Text { payload: msg, .. } = frame {
-                let msg = Message::deserialize(msg);
+                let msg = ChatMessage::deserialize(msg);
                 println!("{}", msg);
             }
         }
@@ -77,7 +77,7 @@ async fn run_chat(username: String, mut rx: WebSocketReadHalf, tx: Arc<Mutex<Web
                 _ => eprintln!("Unknown command"),
             };
         } else {
-            let msg = Message::new(username.clone(), user_input.trim_end().to_string());
+            let msg = ChatMessage::new(username.clone(), user_input.trim_end().to_string());
 
             // Send message to server
             let mut tx = tx.lock().await;
