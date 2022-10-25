@@ -1,7 +1,7 @@
-use chat_core::requests::Register;
+use chat_core::requests::{Register, RegisterResponse};
 use derive_getters::Getters;
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
-use orion::kex::PublicKey;
+use orion::kex::{EphemeralServerSession, PublicKey};
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::{
     sync::{mpsc, RwLock},
@@ -19,6 +19,10 @@ type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 
 #[tokio::main]
 async fn main() {
+    let keys = EphemeralServerSession::new().unwrap();
+    let public_key = keys.public_key().to_owned();
+    let keys_filter = warp::any().map(move || public_key.clone());
+
     let users = Users::default();
     let user_filter = warp::any().map(move || users.clone());
 
@@ -28,6 +32,7 @@ async fn main() {
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
         .and(user_filter.clone())
+        .and(keys_filter.clone())
         .and_then(register_user);
 
     let chat = warp::path("chat")
@@ -41,7 +46,11 @@ async fn main() {
     warp::serve(server).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
+async fn register_user(
+    register: Register,
+    users: Users,
+    server_public_key: PublicKey,
+) -> Result<impl warp::Reply, Infallible> {
     let user: Result<User, ()> = register.try_into();
     match user {
         Ok(user) => {
@@ -49,7 +58,10 @@ async fn register_user(register: Register, users: Users) -> Result<impl warp::Re
             users.write().await.insert(user.id, user);
             println!("User {} registered", id);
 
-            Ok(warp::reply::with_status(id.to_string(), StatusCode::OK))
+            let res =
+                serde_json::to_string(&RegisterResponse::new(id.to_string(), server_public_key))
+                    .expect("serialization to succeed");
+            Ok(warp::reply::with_status(res, StatusCode::OK))
         }
         Err(_) => Ok(warp::reply::with_status(
             "public_key must be a 32 byte array".to_string(),

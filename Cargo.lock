@@ -110,6 +110,7 @@ version = "0.1.0"
 dependencies = [
  "chat-core",
  "clap",
+ "derive-getters",
  "futures",
  "orion",
  "reqwest",
@@ -140,6 +141,7 @@ dependencies = [
  "derive-getters",
  "futures-util",
  "orion",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "uuid",
@@ -816,6 +818,7 @@ dependencies = [
  "ct-codecs",
  "fiat-crypto",
  "getrandom 0.2.8",
+ "serde",
  "subtle",
  "zeroize",
 ]

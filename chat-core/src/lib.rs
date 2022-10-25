@@ -6,6 +6,14 @@ use derive_getters::Getters;
 use orion::{aead, kex::SecretKey};
 use serde::{Deserialize, Serialize};
 
+/// Encrypt a `Serialize`able msg and encrypt it with a given key.
+/// The idea is here that the client and server can generate their shared
+/// secret and pass that to this method. See [orion's documentation for computing shared secrets](https://docs.rs/orion/latest/orion/kex/index.html#example).
+pub fn encrypt_msg(secret_key: &SecretKey, msg: &impl Serialize) -> Vec<u8> {
+    let serialized = serde_json::to_vec(msg).expect("struct to be serialized");
+    aead::seal(secret_key, &serialized).expect("serialized value to be encrypted")
+}
+
 type UserId = String;
 
 #[derive(Debug, Getters, Serialize, Deserialize, PartialEq, Eq)]
@@ -53,7 +61,7 @@ impl Display for ChatMessage {
 }
 
 #[cfg(test)]
-mod test {
+mod chat_msg_test {
     use orion::aead;
 
     use super::*;
@@ -79,5 +87,16 @@ mod test {
         let decrypted = ChatMessage::decrypt(&secret_key, &encrypted_msg);
 
         assert_eq!(msg, decrypted);
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoginMessage {
+    user_id: UserId,
+}
+
+impl LoginMessage {
+    pub fn new(user_id: UserId) -> Self {
+        LoginMessage { user_id }
     }
 }
