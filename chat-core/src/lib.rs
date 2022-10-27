@@ -1,4 +1,8 @@
+#![warn(rust_2018_idioms)]
+// #![warn(missing_docs)]
+
 pub mod requests;
+pub mod x3dh;
 
 use std::fmt::Display;
 
@@ -27,7 +31,7 @@ impl ChatMessage {
     ///
     /// Example:
     /// ```
-    /// use chat_server::ChatMessage;
+    /// use chat_core::ChatMessage;
     ///
     /// let msg = ChatMessage::new("username".to_string(), "Hello there!".to_string());
     /// assert_eq!(msg.sender(), "username");

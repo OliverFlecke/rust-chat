@@ -161,17 +161,18 @@ impl TryFrom<Register> for User {
     type Error = ();
 
     fn try_from(value: Register) -> Result<Self, Self::Error> {
-        match PublicKey::from_slice(value.public_key()) {
-            Ok(public_key) => {
-                let id = Uuid::new_v4();
-                Ok(User {
-                    id,
-                    username: value.username().clone(),
-                    public_key,
-                    tx: None,
-                })
-            }
-            Err(_) => Err(()),
-        }
+        todo!()
+        // match PublicKey::from_slice(value.public_key()) {
+        //     Ok(public_key) => {
+        //         let id = Uuid::new_v4();
+        //         Ok(User {
+        //             id,
+        //             username: value.username().clone(),
+        //             public_key,
+        //             tx: None,
+        //         })
+        //     }
+        //     Err(_) => Err(()),
+        // }
     }
 }
