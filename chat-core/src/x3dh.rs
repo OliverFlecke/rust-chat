@@ -16,12 +16,12 @@ use dryoc::{
 const KEY_LENGTH: usize = 32;
 
 fn encrypt_data(
-    secret_key: dryoc::dryocsecretbox::Key,
+    secret_key: &dryoc::dryocsecretbox::Key,
     message: &[u8],
-    associated_data: Option<Vec<u8>>, // TODO: Is this needed?
+    _associated_data: Option<Vec<u8>>, // TODO: Is this needed?
 ) -> Vec<u8> {
     let nonce = dryoc::dryocsecretbox::Nonce::gen();
-    DryocSecretBox::encrypt_to_vecbox(message, &nonce, &secret_key).to_vec()
+    DryocSecretBox::encrypt_to_vecbox(message, &nonce, secret_key).to_vec()
 }
 
 // TODO:
@@ -95,37 +95,145 @@ impl SignedPreKey {
     }
 }
 
-#[derive(Debug)]
+/// Key store to represent the all the relevant data for communicating securely
+/// for a client.
+#[derive(Debug, Clone)]
+pub struct KeyStore {
+    identity_key: IdentityKey,
+    pre_key: KeyPair,
+    one_time_keys: VecDeque<KeyPair>,
+}
+
+impl KeyStore {
+    /// Generate a key store for a user
+    pub fn gen() -> Self {
+        let number_of_one_time_keys = 100; // TODO: should this be an argument?
+
+        KeyStore {
+            identity_key: IdentityKey::gen(),
+            pre_key: KeyPair::gen(),
+            one_time_keys: (0..number_of_one_time_keys)
+                .map(|_| KeyPair::gen())
+                .collect(),
+        }
+    }
+
+    pub fn get_and_consume_one_time_key_from_public_key(
+        &mut self,
+        public_key: &PublicKey,
+    ) -> Option<KeyPair> {
+        if let Some(position) = self
+            .one_time_keys
+            .iter()
+            .position(|k| k.public_key == *public_key)
+        {
+            return self.one_time_keys.remove(position);
+        }
+
+        None
+    }
+
+    /// Receive a `InitialMessage` intended for this store
+    pub fn receive(&mut self, message: InitialMessage) -> Vec<u8> {
+        if message.receiver_used_pre_key != self.pre_key.public_key {
+            unreachable!()
+        }
+        // let prekey = fetch_pre_key(&self.receiver_used_pre_key).expect("pre key is not Some");
+
+        // TODO: I believe the `IdentityKey` has to be converted from a Ed25519 key to a X25519
+        // before it can be used to compute the shared secret.
+
+        println!("sto dh1 public: {:?}", self.pre_key.secret_key.as_array());
+        println!(
+            "sto dh1 secret: {:?}",
+            message.sender_identity_key.as_array()
+        );
+        let dh1 = InitialMessage::dh(
+            self.pre_key.secret_key.as_array(),
+            message.sender_identity_key.as_array(),
+        );
+        let dh2 = InitialMessage::dh(
+            self.identity_key.get_secret_key_as_slice(),
+            message.sender_ephemeral_public_key.as_array(),
+        );
+        let dh3 = InitialMessage::dh(
+            self.pre_key.secret_key.as_array(),
+            message.sender_ephemeral_public_key.as_array(),
+        );
+
+        println!("Receiver dh1: {:?}", dh1);
+        // println!("Receiver dh2: {:?}", dh2);
+        // println!("Receiver dh3: {:?}", dh3);
+
+        let mut v = Vec::with_capacity(3 * KEY_LENGTH);
+        v.extend(dh1);
+        v.extend(dh2);
+        v.extend(dh3);
+
+        // Include one_time_key if present
+        if let Some(one_time_key) = message
+            .receiver_used_one_time_key
+            .as_ref()
+            .and_then(|key| self.get_and_consume_one_time_key_from_public_key(key))
+        {
+            v.extend(InitialMessage::dh(
+                one_time_key.secret_key.as_array(),
+                message.sender_ephemeral_public_key.as_array(),
+            ));
+        }
+
+        let shared_secret = InitialMessage::kdf(v);
+        println!("Receiver shared secret: {:?}", shared_secret);
+
+        todo!()
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct PublishingKey {
     public_identity_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,
     one_time_pre_keys: VecDeque<PublicKey>,
 }
 
-impl PublishingKey {
-    pub fn new(
-        identity_key: &IdentityKey,
-        pre_key: PublicKey,
-        number_of_one_time_pre_keys: usize,
-    ) -> Self {
-        let signed_pre_key = SignedPreKey::new(identity_key, pre_key);
-
-        let mut one_time_pre_keys = VecDeque::with_capacity(number_of_one_time_pre_keys);
-        for _ in 0..number_of_one_time_pre_keys {
-            one_time_pre_keys.push_back(PublicKey::gen());
-        }
-
+impl From<KeyStore> for PublishingKey {
+    fn from(store: KeyStore) -> Self {
         PublishingKey {
-            public_identity_key: identity_key.get_public_key().to_owned(),
-            signed_pre_key,
-            one_time_pre_keys,
+            public_identity_key: store.identity_key.get_public_key().to_owned(),
+            signed_pre_key: SignedPreKey::new(&store.identity_key, store.pre_key.public_key),
+            one_time_pre_keys: store
+                .one_time_keys
+                .iter()
+                .map(|k| k.public_key.to_owned())
+                .collect(),
         }
     }
 }
 
+// impl PublishingKey {
+//     pub fn new(
+//         identity_key: &IdentityKey,
+//         pre_key: PublicKey,
+//         number_of_one_time_pre_keys: usize,
+//     ) -> Self {
+//         let signed_pre_key = SignedPreKey::new(identity_key, pre_key);
+
+//         let mut one_time_pre_keys = VecDeque::with_capacity(number_of_one_time_pre_keys);
+//         for _ in 0..number_of_one_time_pre_keys {
+//             one_time_pre_keys.push_back(PublicKey::gen());
+//         }
+
+//         PublishingKey {
+//             public_identity_key: identity_key.get_public_key().to_owned(),
+//             signed_pre_key,
+//             one_time_pre_keys,
+//         }
+//     }
+// }
+
 #[derive(Debug)]
 pub struct PreKeyBundle {
-    identity_key: sign::PublicKey,
+    identity_public_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,
     one_time_key: Option<PublicKey>,
 }
@@ -135,7 +243,7 @@ impl PreKeyBundle {
         let one_time_key = published_keys.one_time_pre_keys.pop_front();
 
         PreKeyBundle {
-            identity_key: published_keys.public_identity_key.clone(),
+            identity_public_key: published_keys.public_identity_key.clone(),
             signed_pre_key: published_keys.signed_pre_key.clone(),
             one_time_key,
         }
@@ -145,36 +253,53 @@ impl PreKeyBundle {
 #[derive(Debug)]
 pub struct InitialMessage {
     sender_identity_key: sign::PublicKey,
-    sender_ephemeral_key: PublicKey,
+    sender_ephemeral_public_key: PublicKey,
     receiver_used_pre_key: PublicKey,
+    receiver_used_one_time_key: Option<PublicKey>,
     cipher_text: Vec<u8>,
 }
 
 type DHArray = [u8; KEY_LENGTH];
 
 impl InitialMessage {
+    /// Create an initial message from a `PreKeyBundle`.
+    /// This will validate the bundle and compute the shared secret between
+    /// the sender and the provided `IdentityKey`.
     pub fn create_from(
         identity_key: &IdentityKey,
         bundle: PreKeyBundle,
+        message: &[u8],
     ) -> Result<Self, InitialMessageTryFromError> {
-        if !bundle.signed_pre_key.verify(&bundle.identity_key) {
+        if !bundle.signed_pre_key.verify(&bundle.identity_public_key) {
             return Err(InitialMessageTryFromError::InvalidPreKeySignature);
         }
 
         let ephemeral_key = KeyPair::gen();
 
+        println!(
+            "init dh1 public: {:?}",
+            identity_key.get_secret_key_as_slice()
+        );
+        println!(
+            "init dh1 secret: {:?}",
+            bundle.signed_pre_key.public_key.as_array()
+        );
         let dh1 = Self::dh(
             identity_key.get_secret_key_as_slice(),
             bundle.signed_pre_key.public_key.as_array(),
         );
         let dh2 = Self::dh(
             ephemeral_key.secret_key.as_array(),
-            bundle.identity_key.as_array(),
+            bundle.identity_public_key.as_array(),
         );
         let dh3 = Self::dh(
             ephemeral_key.secret_key.as_array(),
             bundle.signed_pre_key.public_key.as_array(),
         );
+
+        println!("Sender dh1:   {:?}", dh1);
+        // println!("Sender dh2:   {:?}", dh2);
+        // println!("Sender dh3:   {:?}", dh3);
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
         v.extend(dh1);
@@ -184,22 +309,26 @@ impl InitialMessage {
         // Include one_time_key if present
         if let Some(dh4) = bundle
             .one_time_key
+            .as_ref()
             .map(|key| Self::dh(ephemeral_key.secret_key.as_array(), key.as_array()))
         {
             v.extend(dh4);
         }
 
         let shared_secret = Self::kdf(v);
-        let cipher_text = encrypt_data(shared_secret, b"hello_world", None);
+        println!("Sender shared secret:   {:?}", shared_secret);
+        let cipher_text = encrypt_data(&shared_secret, message, None);
 
         Ok(InitialMessage {
             sender_identity_key: identity_key.get_public_key().to_owned(),
-            sender_ephemeral_key: ephemeral_key.public_key,
+            sender_ephemeral_public_key: ephemeral_key.public_key,
             receiver_used_pre_key: bundle.signed_pre_key.public_key,
+            receiver_used_one_time_key: bundle.one_time_key,
             cipher_text,
         })
     }
 
+    /// Helper method to compute Diffie-Hellman
     fn dh(
         secret: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
         public: &[u8; CRYPTO_SCALARMULT_BYTES],
@@ -223,14 +352,14 @@ impl InitialMessage {
             .expect("subkey could not be derived")
     }
 }
+
+#[derive(Debug)]
 pub enum InitialMessageTryFromError {
     InvalidPreKeySignature,
 }
 
 #[cfg(test)]
 mod test {
-    use dryoc::dryocbox::KeyPair;
-
     use super::*;
 
     #[test]
@@ -245,20 +374,44 @@ mod test {
 
         // Step 1 - Publishing keys
         // Acted by Bob
-        let bob_identity_key = IdentityKey::gen(); // Secret to Bob
-        let bob_pre_key = KeyPair::gen(); // Secret to Bob
+        let mut bob_store = KeyStore::gen();
+        println!("Bob's store");
+        println!(
+            "Bob Id public:   {:?}",
+            &bob_store.identity_key.get_public_key()[..]
+        );
+        println!(
+            "Bob Id secret:   {:?}",
+            bob_store.identity_key.get_secret_key_as_slice()
+        );
 
         // Bob's information published to the server
-        let mut published_keys =
-            PublishingKey::new(&bob_identity_key, bob_pre_key.public_key.clone(), 100);
+        let mut published_keys = PublishingKey::from(bob_store.clone());
 
         // Step 2 - Sending the initial message
         // Acted by Alice
         // Simulate getting this info from the trusted server.
+        let message = b"hello world";
         let alice_identity_key = IdentityKey::gen();
+        println!(
+            "Alice Id public: {:?}",
+            &alice_identity_key.get_public_key()[..]
+        );
+        println!(
+            "Alice Id secret: {:?}",
+            alice_identity_key.get_secret_key_as_slice()
+        );
 
         let pre_key_bundle = PreKeyBundle::create_from(&mut published_keys);
-        let initial_msg = InitialMessage::create_from(&alice_identity_key, pre_key_bundle);
+        let initial_msg = InitialMessage::create_from(&alice_identity_key, pre_key_bundle, message)
+            .expect("message to have been sent");
+
+        // After generating the initial message, one OTK should have been consumed
+        assert_eq!(published_keys.one_time_pre_keys.len(), 99);
+
+        // Step 3 - Bob receives the initial message from Alice
+        let decrypted_msg = bob_store.receive(initial_msg);
+        assert_eq!(decrypted_msg, message);
     }
 
     #[test]
@@ -274,13 +427,15 @@ mod test {
 
     #[test]
     fn publish_keys() {
-        let id_key = IdentityKey::gen();
-        let pre_key = PublicKey::gen();
+        let store = KeyStore::gen();
 
-        let published = PublishingKey::new(&id_key, pre_key.clone(), 100);
+        let published = PublishingKey::from(store.clone());
 
         assert_eq!(published.one_time_pre_keys.len(), 100);
-        assert_eq!(published.signed_pre_key.public_key, pre_key);
+        assert_eq!(
+            published.signed_pre_key.public_key,
+            store.pre_key.public_key
+        );
     }
 
     #[test]
@@ -288,6 +443,10 @@ mod test {
         let id = IdentityKey::gen();
 
         println!("{:?}", id);
+        println!("public main:        {:?}", &id.key.public_key[..]);
+        println!("public from secret: {:?}", &id.key.secret_key[32..]);
+        println!("secret:             {:?}", &id.key.secret_key[..]);
+        println!("secret from secret: {:?}", &id.key.secret_key[..32]);
         assert_eq!(id.get_public_key(), &id.key.public_key);
         assert_eq!(id.get_secret_key_as_slice(), &id.key.secret_key[..32]);
     }

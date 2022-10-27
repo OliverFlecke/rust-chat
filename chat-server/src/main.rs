@@ -160,7 +160,7 @@ pub struct User {
 impl TryFrom<Register> for User {
     type Error = ();
 
-    fn try_from(value: Register) -> Result<Self, Self::Error> {
+    fn try_from(_value: Register) -> Result<Self, Self::Error> {
         todo!()
         // match PublicKey::from_slice(value.public_key()) {
         //     Ok(public_key) => {
