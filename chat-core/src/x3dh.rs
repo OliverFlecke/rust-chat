@@ -60,6 +60,25 @@ impl IdentityKey {
         &self.key.secret_key[..KEY_LENGTH].as_array()
     }
 
+    pub fn get_x25519_key_pair(&self) -> KeyPair {
+        use dryoc::classic::crypto_sign_ed25519::crypto_sign_ed25519_sk_to_curve25519;
+
+        let mut secret: [u8; KEY_LENGTH] = [0; KEY_LENGTH];
+        crypto_sign_ed25519_sk_to_curve25519(&mut secret, self.key.secret_key.as_array());
+
+        KeyPair::from_secret_key(dryoc::dryocbox::StackByteArray::from(secret))
+    }
+
+    pub fn convert_public_ed25519_to_x25519(public_key: &sign::PublicKey) -> PublicKey {
+        use dryoc::classic::crypto_sign_ed25519::crypto_sign_ed25519_pk_to_curve25519;
+
+        let mut x25519_public_key: [u8; KEY_LENGTH] = [0; KEY_LENGTH];
+        crypto_sign_ed25519_pk_to_curve25519(&mut x25519_public_key, public_key.as_array())
+            .expect("public key could not be converted");
+
+        PublicKey::from(dryoc::dryocbox::StackByteArray::from(x25519_public_key))
+    }
+
     /// Sign a message (array of bytes) with the identity key.
     pub fn sign<M>(&self, message: M) -> Vec<u8>
     where
@@ -143,17 +162,20 @@ impl KeyStore {
         // TODO: I believe the `IdentityKey` has to be converted from a Ed25519 key to a X25519
         // before it can be used to compute the shared secret.
 
-        println!("sto dh1 public: {:?}", self.pre_key.secret_key.as_array());
-        println!(
-            "sto dh1 secret: {:?}",
-            message.sender_identity_key.as_array()
-        );
+        // println!("sto dh1 public: {:?}", self.pre_key.secret_key.as_array());
+        // println!(
+        //     "sto dh1 secret: {:?}",
+        //     message.sender_identity_key.as_array()
+        // );
         let dh1 = InitialMessage::dh(
             self.pre_key.secret_key.as_array(),
-            message.sender_identity_key.as_array(),
+            IdentityKey::convert_public_ed25519_to_x25519(&message.sender_identity_key).as_array(),
         );
         let dh2 = InitialMessage::dh(
-            self.identity_key.get_secret_key_as_slice(),
+            self.identity_key
+                .get_x25519_key_pair()
+                .secret_key
+                .as_array(),
             message.sender_ephemeral_public_key.as_array(),
         );
         let dh3 = InitialMessage::dh(
@@ -162,8 +184,8 @@ impl KeyStore {
         );
 
         println!("Receiver dh1: {:?}", dh1);
-        // println!("Receiver dh2: {:?}", dh2);
-        // println!("Receiver dh3: {:?}", dh3);
+        println!("Receiver dh2: {:?}", dh2);
+        println!("Receiver dh3: {:?}", dh3);
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
         v.extend(dh1);
@@ -171,15 +193,19 @@ impl KeyStore {
         v.extend(dh3);
 
         // Include one_time_key if present
-        if let Some(one_time_key) = message
+        if let Some(dh4) = message
             .receiver_used_one_time_key
             .as_ref()
             .and_then(|key| self.get_and_consume_one_time_key_from_public_key(key))
+            .map(|key| {
+                InitialMessage::dh(
+                    key.secret_key.as_array(),
+                    message.sender_ephemeral_public_key.as_array(),
+                )
+            })
         {
-            v.extend(InitialMessage::dh(
-                one_time_key.secret_key.as_array(),
-                message.sender_ephemeral_public_key.as_array(),
-            ));
+            println!("Receiver dh4: {:?}", dh4);
+            v.extend(dh4);
         }
 
         let shared_secret = InitialMessage::kdf(v);
@@ -276,21 +302,21 @@ impl InitialMessage {
 
         let ephemeral_key = KeyPair::gen();
 
-        println!(
-            "init dh1 public: {:?}",
-            identity_key.get_secret_key_as_slice()
-        );
-        println!(
-            "init dh1 secret: {:?}",
-            bundle.signed_pre_key.public_key.as_array()
-        );
+        // println!(
+        //     "init dh1 public: {:?}",
+        //     identity_key.get_secret_key_as_slice()
+        // );
+        // println!(
+        //     "init dh1 secret: {:?}",
+        //     bundle.signed_pre_key.public_key.as_array()
+        // );
         let dh1 = Self::dh(
-            identity_key.get_secret_key_as_slice(),
+            identity_key.get_x25519_key_pair().secret_key.as_array(),
             bundle.signed_pre_key.public_key.as_array(),
         );
         let dh2 = Self::dh(
             ephemeral_key.secret_key.as_array(),
-            bundle.identity_public_key.as_array(),
+            IdentityKey::convert_public_ed25519_to_x25519(&bundle.identity_public_key).as_array(),
         );
         let dh3 = Self::dh(
             ephemeral_key.secret_key.as_array(),
@@ -298,8 +324,8 @@ impl InitialMessage {
         );
 
         println!("Sender dh1:   {:?}", dh1);
-        // println!("Sender dh2:   {:?}", dh2);
-        // println!("Sender dh3:   {:?}", dh3);
+        println!("Sender dh2:   {:?}", dh2);
+        println!("Sender dh3:   {:?}", dh3);
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
         v.extend(dh1);
@@ -312,6 +338,8 @@ impl InitialMessage {
             .as_ref()
             .map(|key| Self::dh(ephemeral_key.secret_key.as_array(), key.as_array()))
         {
+            println!("Sender dh4:   {:?}", dh4);
+
             v.extend(dh4);
         }
 
@@ -346,8 +374,10 @@ impl InitialMessage {
                 .expect("hashing main key failed")
                 .as_array();
 
+        println!("Hash of main key: {:?}", main_key);
         let key = kdf::Key::from(main_key);
-        Kdf::from_parts(key, kdf::Context::gen())
+        let context = kdf::Context::from([0; 8]); // TODO: Context should be randomly generated
+        Kdf::from_parts(key, context)
             .derive_subkey::<StackByteArray<KEY_LENGTH>>(0)
             .expect("subkey could not be derived")
     }
