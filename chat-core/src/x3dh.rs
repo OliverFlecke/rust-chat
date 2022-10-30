@@ -6,7 +6,7 @@ use dryoc::{
     classic::crypto_kdf::Key,
     constants::{CRYPTO_SCALARMULT_BYTES, CRYPTO_SCALARMULT_SCALARBYTES},
     dryocbox::{KeyPair, PublicKey},
-    dryocsecretbox::DryocSecretBox,
+    dryocsecretbox::{DryocSecretBox, Nonce},
     generichash::GenericHash,
     kdf::{self, Kdf},
     sign::{self, Message, Signature, SignedMessage, SigningKeyPair},
@@ -19,9 +19,12 @@ fn encrypt_data(
     secret_key: &dryoc::dryocsecretbox::Key,
     message: &[u8],
     _associated_data: Option<Vec<u8>>, // TODO: Is this needed?
-) -> Vec<u8> {
+) -> (Vec<u8>, Nonce) {
     let nonce = dryoc::dryocsecretbox::Nonce::gen();
-    DryocSecretBox::encrypt_to_vecbox(message, &nonce, secret_key).to_vec()
+    (
+        DryocSecretBox::encrypt_to_vecbox(message, &nonce, secret_key).to_vec(),
+        nonce,
+    )
 }
 
 /// Helper method to compute Diffie-Hellman
@@ -182,6 +185,8 @@ impl KeyStore {
     }
 
     /// Receive a `InitialMessage` intended for this store
+    /// This will calculate the shared secret between the two parties and
+    /// decrypt the cipher text stored in `message`.
     pub fn receive(&mut self, message: InitialMessage) -> Vec<u8> {
         if message.receiver_used_pre_key != self.pre_key.public_key {
             unreachable!()
@@ -226,7 +231,10 @@ impl KeyStore {
         let shared_secret = kdf(v);
         println!("Receiver shared secret: {:?}", shared_secret);
 
-        todo!()
+        DryocSecretBox::from_bytes(&message.cipher_text)
+            .expect("unable to create secret box from bytes")
+            .decrypt_to_vec(&message.nonce, &shared_secret)
+            .expect("message to be decryted")
     }
 }
 
@@ -277,6 +285,7 @@ pub struct InitialMessage {
     receiver_used_pre_key: PublicKey,
     receiver_used_one_time_key: Option<PublicKey>,
     cipher_text: Vec<u8>,
+    nonce: Nonce,
 }
 
 type DHArray = [u8; KEY_LENGTH];
@@ -325,7 +334,7 @@ impl InitialMessage {
 
         let shared_secret = kdf(v);
         println!("Sender shared secret:   {:?}", shared_secret);
-        let cipher_text = encrypt_data(&shared_secret, message, None);
+        let (cipher_text, nonce) = encrypt_data(&shared_secret, message, None);
 
         Ok(InitialMessage {
             sender_identity_key: identity_key.get_public_key().to_owned(),
@@ -333,6 +342,7 @@ impl InitialMessage {
             receiver_used_pre_key: bundle.signed_pre_key.public_key,
             receiver_used_one_time_key: bundle.one_time_key,
             cipher_text,
+            nonce,
         })
     }
 }
