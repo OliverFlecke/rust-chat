@@ -39,18 +39,24 @@ fn diffie_hellman(
     dh4
 }
 
-fn kdf(main_key: Vec<u8>) -> StackByteArray<KEY_LENGTH> {
+fn kdf(
+    main_key: Vec<u8>,
+    subkey: u64,
+    context: Option<kdf::Context>,
+) -> (StackByteArray<KEY_LENGTH>, kdf::Context) {
     let main_key: [u8; KEY_LENGTH] =
         *GenericHash::hash_with_defaults_to_vec::<_, Key>(&main_key, None)
             .expect("hashing main key failed")
             .as_array();
 
-    println!("Hash of main key: {:?}", main_key);
     let key = kdf::Key::from(main_key);
-    let context = kdf::Context::from([0; 8]); // TODO: Context should be randomly generated
-    Kdf::from_parts(key, context)
-        .derive_subkey::<StackByteArray<KEY_LENGTH>>(0)
-        .expect("subkey could not be derived")
+    let context = context.unwrap_or_else(kdf::Context::gen);
+    (
+        Kdf::from_parts(key, context.clone())
+            .derive_subkey::<StackByteArray<KEY_LENGTH>>(subkey)
+            .expect("subkey could not be derived"),
+        context,
+    )
 }
 
 // TODO:
@@ -187,25 +193,25 @@ impl KeyStore {
     /// Receive a `InitialMessage` intended for this store
     /// This will calculate the shared secret between the two parties and
     /// decrypt the cipher text stored in `message`.
-    pub fn receive(&mut self, message: InitialMessage) -> Vec<u8> {
-        if message.receiver_used_pre_key != self.pre_key.public_key {
+    pub fn receive(&mut self, msg: InitialMessage) -> Vec<u8> {
+        if msg.receiver_used_pre_key != self.pre_key.public_key {
             unreachable!()
         }
 
         let dh1 = diffie_hellman(
             self.pre_key.secret_key.as_array(),
-            IdentityKey::convert_public_ed25519_to_x25519(&message.sender_identity_key).as_array(),
+            IdentityKey::convert_public_ed25519_to_x25519(&msg.sender_identity_key).as_array(),
         );
         let dh2 = diffie_hellman(
             self.identity_key
                 .get_x25519_key_pair()
                 .secret_key
                 .as_array(),
-            message.sender_ephemeral_public_key.as_array(),
+            msg.sender_ephemeral_public_key.as_array(),
         );
         let dh3 = diffie_hellman(
             self.pre_key.secret_key.as_array(),
-            message.sender_ephemeral_public_key.as_array(),
+            msg.sender_ephemeral_public_key.as_array(),
         );
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
@@ -214,26 +220,26 @@ impl KeyStore {
         v.extend(dh3);
 
         // Include one_time_key if present
-        if let Some(dh4) = message
+        if let Some(dh4) = msg
             .receiver_used_one_time_key
             .as_ref()
             .and_then(|key| self.get_and_consume_one_time_key_from_public_key(key))
             .map(|key| {
                 diffie_hellman(
                     key.secret_key.as_array(),
-                    message.sender_ephemeral_public_key.as_array(),
+                    msg.sender_ephemeral_public_key.as_array(),
                 )
             })
         {
             v.extend(dh4);
         }
 
-        let shared_secret = kdf(v);
+        let (shared_secret, _) = kdf(v, msg.subkey, Some(msg.kdf_context));
         println!("Receiver shared secret: {:?}", shared_secret);
 
-        DryocSecretBox::from_bytes(&message.cipher_text)
+        DryocSecretBox::from_bytes(&msg.cipher_text)
             .expect("unable to create secret box from bytes")
-            .decrypt_to_vec(&message.nonce, &shared_secret)
+            .decrypt_to_vec(&msg.nonce, &shared_secret)
             .expect("message to be decryted")
     }
 }
@@ -286,6 +292,8 @@ pub struct InitialMessage {
     receiver_used_one_time_key: Option<PublicKey>,
     cipher_text: Vec<u8>,
     nonce: Nonce,
+    kdf_context: kdf::Context,
+    subkey: u64,
 }
 
 type DHArray = [u8; KEY_LENGTH];
@@ -332,8 +340,8 @@ impl InitialMessage {
             v.extend(dh4);
         }
 
-        let shared_secret = kdf(v);
-        println!("Sender shared secret:   {:?}", shared_secret);
+        let subkey = 0;
+        let (shared_secret, kdf_context) = kdf(v, subkey, None);
         let (cipher_text, nonce) = encrypt_data(&shared_secret, message, None);
 
         Ok(InitialMessage {
@@ -343,6 +351,8 @@ impl InitialMessage {
             receiver_used_one_time_key: bundle.one_time_key,
             cipher_text,
             nonce,
+            kdf_context,
+            subkey,
         })
     }
 }
