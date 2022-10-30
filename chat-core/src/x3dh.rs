@@ -2,6 +2,7 @@
 /// a shared secret between two parties. Note that this is just done as an exercise and there are no guaranties for correctness.
 use std::collections::VecDeque;
 
+use derive_getters::Getters;
 use dryoc::{
     classic::crypto_kdf::Key,
     constants::{CRYPTO_SCALARMULT_BYTES, CRYPTO_SCALARMULT_SCALARBYTES},
@@ -12,6 +13,7 @@ use dryoc::{
     sign::{self, Message, Signature, SignedMessage, SigningKeyPair},
     types::{ByteArray, Bytes, NewByteArray, StackByteArray},
 };
+use serde::{Deserialize, Serialize};
 
 const KEY_LENGTH: usize = 32;
 
@@ -129,7 +131,7 @@ impl IdentityKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedPreKey {
     public_key: PublicKey,
     signature: Vec<u8>,
@@ -244,11 +246,17 @@ impl KeyStore {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishingKey {
     public_identity_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,
     one_time_pre_keys: VecDeque<PublicKey>,
+}
+
+impl PublishingKey {
+    pub fn get_public_identity_key(&self) -> &sign::PublicKey {
+        &self.public_identity_key
+    }
 }
 
 impl From<KeyStore> for PublishingKey {
@@ -284,7 +292,7 @@ impl PreKeyBundle {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct InitialMessage {
     sender_identity_key: sign::PublicKey,
     sender_ephemeral_public_key: PublicKey,
@@ -379,15 +387,6 @@ mod test {
         // Step 1 - Publishing keys
         // Acted by Bob
         let mut bob_store = KeyStore::gen();
-        println!("Bob's store");
-        println!(
-            "Bob Id public:   {:?}",
-            &bob_store.identity_key.get_public_key()[..]
-        );
-        println!(
-            "Bob Id secret:   {:?}",
-            bob_store.identity_key.get_secret_key_as_slice()
-        );
 
         // Bob's information published to the server
         let mut published_keys = PublishingKey::from(bob_store.clone());
@@ -397,14 +396,6 @@ mod test {
         // Simulate getting this info from the trusted server.
         let message = b"hello world";
         let alice_identity_key = IdentityKey::gen();
-        println!(
-            "Alice Id public: {:?}",
-            &alice_identity_key.get_public_key()[..]
-        );
-        println!(
-            "Alice Id secret: {:?}",
-            alice_identity_key.get_secret_key_as_slice()
-        );
 
         let pre_key_bundle = PreKeyBundle::create_from(&mut published_keys);
         let initial_msg = InitialMessage::create_from(&alice_identity_key, pre_key_bundle, message)

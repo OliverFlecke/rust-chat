@@ -1,7 +1,9 @@
-use chat_core::requests::{Register, RegisterResponse};
+use chat_core::{
+    requests::{Register, RegisterResponse},
+    x3dh::PublishingKey,
+};
 use derive_getters::Getters;
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
-use orion::kex::{EphemeralServerSession, PublicKey};
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::{
     sync::{mpsc, RwLock},
@@ -15,14 +17,10 @@ use warp::{
     Filter,
 };
 
-type Users = Arc<RwLock<HashMap<Uuid, User>>>;
+type Users = Arc<RwLock<HashMap<String, User>>>;
 
 #[tokio::main]
 async fn main() {
-    let keys = EphemeralServerSession::new().unwrap();
-    let public_key = keys.public_key().to_owned();
-    let keys_filter = warp::any().map(move || public_key.clone());
-
     let users = Users::default();
     let user_filter = warp::any().map(move || users.clone());
 
@@ -32,7 +30,6 @@ async fn main() {
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
         .and(user_filter.clone())
-        .and(keys_filter.clone())
         .and_then(register_user);
 
     let chat = warp::path("chat")
@@ -46,28 +43,25 @@ async fn main() {
     warp::serve(server).run(([127, 0, 0, 1], 3030)).await;
 }
 
-async fn register_user(
-    register: Register,
-    users: Users,
-    server_public_key: PublicKey,
-) -> Result<impl warp::Reply, Infallible> {
-    let user: Result<User, ()> = register.try_into();
-    match user {
-        Ok(user) => {
-            let id = user.id().clone();
-            users.write().await.insert(user.id, user);
-            println!("User {} registered", id);
+async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
+    let id = Uuid::new_v4();
+    let user = User {
+        id,
+        username: register.username().clone(),
+        key_info: register.key_info().clone(),
+        tx: None,
+    };
+    users
+        .write()
+        .await
+        .insert(register.username().to_owned(), user);
+    println!("User '{}' registered", register.username());
 
-            let res =
-                serde_json::to_string(&RegisterResponse::new(id.to_string(), server_public_key))
-                    .expect("serialization to succeed");
-            Ok(warp::reply::with_status(res, StatusCode::OK))
-        }
-        Err(_) => Ok(warp::reply::with_status(
-            "public_key must be a 32 byte array".to_string(),
-            StatusCode::BAD_REQUEST,
-        )),
-    }
+    Ok(warp::reply::with_status(
+        serde_json::to_string(&RegisterResponse::new(id.to_string()))
+            .expect("serialization in register failed"),
+        StatusCode::OK,
+    ))
 }
 
 async fn on_connection(ws: WebSocket, users: Users) {
@@ -153,26 +147,6 @@ fn send(text: String, user: &User) {
 pub struct User {
     id: Uuid,
     username: String,
-    public_key: PublicKey,
+    key_info: PublishingKey,
     tx: Option<mpsc::UnboundedSender<Message>>,
-}
-
-impl TryFrom<Register> for User {
-    type Error = ();
-
-    fn try_from(_value: Register) -> Result<Self, Self::Error> {
-        todo!()
-        // match PublicKey::from_slice(value.public_key()) {
-        //     Ok(public_key) => {
-        //         let id = Uuid::new_v4();
-        //         Ok(User {
-        //             id,
-        //             username: value.username().clone(),
-        //             public_key,
-        //             tx: None,
-        //         })
-        //     }
-        //     Err(_) => Err(()),
-        // }
-    }
 }

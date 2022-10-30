@@ -25,7 +25,7 @@ struct Args {
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
 
-    let (user, _server_public_key) = register(
+    let user = register(
         args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
         &args.server,
     )

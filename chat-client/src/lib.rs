@@ -1,5 +1,5 @@
+use chat_core::x3dh::KeyStore;
 use derive_getters::Getters;
-use orion::kex::{EphemeralClientSession, PublicKey};
 
 pub mod chat;
 pub mod setup;
@@ -9,10 +9,10 @@ pub mod setup;
 pub struct User {
     id: String,
     username: String,
-    session: EphemeralClientSession,
+    session: KeyStore,
 }
+
 #[derive(Debug, Getters)]
 pub struct Server {
     host: String,
-    public_key: PublicKey,
 }

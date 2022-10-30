@@ -1,33 +1,27 @@
 use derive_getters::Getters;
-use orion::kex::PublicKey;
 use serde::{Deserialize, Serialize};
+
+use crate::x3dh::PublishingKey;
 
 #[derive(Serialize, Deserialize, Getters)]
 pub struct Register {
     username: String,
-    public_key: PublicKey,
+    key_info: PublishingKey,
 }
 
 impl Register {
-    pub fn new(username: String, public_key: PublicKey) -> Self {
-        Register {
-            username,
-            public_key,
-        }
+    pub fn new(username: String, key_info: PublishingKey) -> Self {
+        Register { username, key_info }
     }
 }
 
 #[derive(Serialize, Deserialize, Getters)]
 pub struct RegisterResponse {
     id: String,
-    server_public_key: PublicKey,
 }
 
 impl RegisterResponse {
-    pub fn new(id: String, server_public_key: PublicKey) -> Self {
-        RegisterResponse {
-            id,
-            server_public_key,
-        }
+    pub fn new(id: String) -> Self {
+        RegisterResponse { id }
     }
 }

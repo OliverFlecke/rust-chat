@@ -123,7 +123,6 @@ dependencies = [
  "clap",
  "derive-getters",
  "futures",
- "orion",
  "reqwest",
  "serde",
  "serde_json",
@@ -140,7 +139,6 @@ version = "0.1.0"
 dependencies = [
  "derive-getters",
  "dryoc",
- "orion",
  "serde",
  "serde_json",
 ]
@@ -151,8 +149,8 @@ version = "0.1.0"
 dependencies = [
  "chat-core",
  "derive-getters",
+ "dryoc",
  "futures-util",
- "orion",
  "serde_json",
  "tokio",
  "tokio-stream",
@@ -244,12 +242,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ct-codecs"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3b7eb4404b8195a9abb6356f4ac07d8ba267045c8d6d220ac4dc992e6cc75df"
-
-[[package]]
 name = "curve25519-dalek"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,12 +322,6 @@ checksum = "a7a407cfaa3385c4ae6b23e84623d48c2798d06e3e6a1878f7f59f17b3f86499"
 dependencies = [
  "instant",
 ]
-
-[[package]]
-name = "fiat-crypto"
-version = "0.1.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a214f5bb88731d436478f3ae1f8a277b62124089ba9fb67f4f93fb100ef73c90"
 
 [[package]]
 name = "flume"
@@ -873,20 +859,6 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
-]
-
-[[package]]
-name = "orion"
-version = "0.17.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd6b8920e5d7662ee0578a19b322ff34ff56009e4c3730e2f90d75760002bfc9"
-dependencies = [
- "ct-codecs",
- "fiat-crypto",
- "getrandom 0.2.8",
- "serde",
- "subtle",
- "zeroize",
 ]
 
 [[package]]

@@ -7,16 +7,7 @@ pub mod x3dh;
 use std::fmt::Display;
 
 use derive_getters::Getters;
-use orion::{aead, kex::SecretKey};
 use serde::{Deserialize, Serialize};
-
-/// Encrypt a `Serialize`able msg and encrypt it with a given key.
-/// The idea is here that the client and server can generate their shared
-/// secret and pass that to this method. See [orion's documentation for computing shared secrets](https://docs.rs/orion/latest/orion/kex/index.html#example).
-pub fn encrypt_msg(secret_key: &SecretKey, msg: &impl Serialize) -> Vec<u8> {
-    let serialized = serde_json::to_vec(msg).expect("struct to be serialized");
-    aead::seal(secret_key, &serialized).expect("serialized value to be encrypted")
-}
 
 type UserId = String;
 
@@ -49,13 +40,13 @@ impl ChatMessage {
         serde_json::to_string(self).unwrap()
     }
 
-    pub fn encrypt(&self, secret_key: &SecretKey) -> Vec<u8> {
-        aead::seal(secret_key, self.serialize().as_bytes()).unwrap()
-    }
+    // pub fn encrypt(&self, secret_key: &SecretKey) -> Vec<u8> {
+    //     todo!()
+    // }
 
-    pub fn decrypt(secret_key: &SecretKey, cipher_text: &[u8]) -> Self {
-        serde_json::from_slice(aead::open(secret_key, cipher_text).unwrap().as_slice()).unwrap()
-    }
+    // pub fn decrypt(secret_key: &SecretKey, cipher_text: &[u8]) -> Self {
+    //     todo!()
+    // }
 }
 
 impl Display for ChatMessage {
@@ -66,8 +57,6 @@ impl Display for ChatMessage {
 
 #[cfg(test)]
 mod chat_msg_test {
-    use orion::aead;
-
     use super::*;
 
     #[test]
@@ -76,21 +65,6 @@ mod chat_msg_test {
 
         assert_eq!(msg.sender(), "username");
         assert_eq!(msg.text(), "Hello there!");
-    }
-
-    #[test]
-    fn encryption() {
-        let secret_key = aead::SecretKey::default();
-        let msg = ChatMessage::new("sender".to_string(), "message".to_string());
-
-        let encrypted_msg = msg.encrypt(&secret_key);
-
-        assert!(!encrypted_msg.is_empty());
-
-        // Decrypt
-        let decrypted = ChatMessage::decrypt(&secret_key, &encrypted_msg);
-
-        assert_eq!(msg, decrypted);
     }
 }
 

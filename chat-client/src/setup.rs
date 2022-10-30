@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
 use chat_core::{
-    encrypt_msg,
     requests::{Register, RegisterResponse},
-    LoginMessage,
+    x3dh::{KeyStore, PublishingKey},
 };
-use orion::kex::{EphemeralClientSession, PublicKey};
 use tokio::sync::Mutex;
 use websockets::{WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
 
@@ -14,7 +12,7 @@ use crate::{Server, User};
 /// Connect through a websocket and authenticate the given user.
 pub async fn connect_and_authenticate(
     server: &Server,
-    user: &User,
+    _user: &User,
 ) -> Result<(WebSocketReadHalf, Arc<Mutex<WebSocketWriteHalf>>), ()> {
     let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = server.host()))
         .await
@@ -22,13 +20,11 @@ pub async fn connect_and_authenticate(
         .split();
     let tx = Arc::new(Mutex::new(tx));
 
-    let login_msg = LoginMessage::new(user.id().to_owned());
+    // let login_msg = LoginMessage::new(user.id().to_owned());
     // let shared_secret = user
     //     .session()
     //     .establish_with_server(&server.public_key)
     //     .expect("shared secret to be computed");
-
-    todo!();
 
     // let payload = encrypt_msg(shared_secret, &login_msg);
     // tx.lock()
@@ -44,9 +40,9 @@ pub async fn connect_and_authenticate(
 //  - How can `reqwest` be mocked to generate responses during test?
 
 /// Register the user at the server with the given username.
-pub async fn register(username: String, server: &String) -> Result<(User, PublicKey), ()> {
-    let session = EphemeralClientSession::new().unwrap();
-    let res_body = post_register(&username, session.public_key(), server)
+pub async fn register(username: String, server: &String) -> Result<User, ()> {
+    let session = KeyStore::gen();
+    let res_body = post_register(&username, PublishingKey::from(session.clone()), server)
         .await
         .expect("register to succeed");
 
@@ -59,17 +55,17 @@ pub async fn register(username: String, server: &String) -> Result<(User, Public
         session,
     };
 
-    Ok((user, res.server_public_key().to_owned()))
+    Ok(user)
 }
 
 async fn post_register(
     username: &String,
-    public_key: &PublicKey,
+    publishing_key: PublishingKey,
     server: &String,
 ) -> Result<String, ()> {
     match reqwest::Client::new()
         .post(format!("http://{server}/register"))
-        .body(serde_json::to_string(&Register::new(username.clone(), public_key.clone())).unwrap())
+        .body(serde_json::to_string(&Register::new(username.to_owned(), publishing_key)).unwrap())
         .send()
         .await
     {
