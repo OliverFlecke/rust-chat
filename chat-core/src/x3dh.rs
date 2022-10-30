@@ -24,6 +24,32 @@ fn encrypt_data(
     DryocSecretBox::encrypt_to_vecbox(message, &nonce, secret_key).to_vec()
 }
 
+/// Helper method to compute Diffie-Hellman
+fn diffie_hellman(
+    secret: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
+    public: &[u8; CRYPTO_SCALARMULT_BYTES],
+) -> DHArray {
+    use dryoc::classic::crypto_core::crypto_scalarmult;
+
+    let mut dh4: DHArray = [0; KEY_LENGTH];
+    crypto_scalarmult(&mut dh4, secret, public);
+    dh4
+}
+
+fn kdf(main_key: Vec<u8>) -> StackByteArray<KEY_LENGTH> {
+    let main_key: [u8; KEY_LENGTH] =
+        *GenericHash::hash_with_defaults_to_vec::<_, Key>(&main_key, None)
+            .expect("hashing main key failed")
+            .as_array();
+
+    println!("Hash of main key: {:?}", main_key);
+    let key = kdf::Key::from(main_key);
+    let context = kdf::Context::from([0; 8]); // TODO: Context should be randomly generated
+    Kdf::from_parts(key, context)
+        .derive_subkey::<StackByteArray<KEY_LENGTH>>(0)
+        .expect("subkey could not be derived")
+}
+
 // TODO:
 // - [ ] serde for the different structs. These will likely have to be send
 //       over networks and therefore have to be serialized.
@@ -60,6 +86,8 @@ impl IdentityKey {
         &self.key.secret_key[..KEY_LENGTH].as_array()
     }
 
+    /// Converts this ED25519 key to a x25519 key pair. This allows to use the
+    /// same key for signing and encryption.
     pub fn get_x25519_key_pair(&self) -> KeyPair {
         use dryoc::classic::crypto_sign_ed25519::crypto_sign_ed25519_sk_to_curve25519;
 
@@ -69,6 +97,7 @@ impl IdentityKey {
         KeyPair::from_secret_key(dryoc::dryocbox::StackByteArray::from(secret))
     }
 
+    /// Convert a public signing ed25519 key to a public x25519 key.
     pub fn convert_public_ed25519_to_x25519(public_key: &sign::PublicKey) -> PublicKey {
         use dryoc::classic::crypto_sign_ed25519::crypto_sign_ed25519_pk_to_curve25519;
 
@@ -157,35 +186,22 @@ impl KeyStore {
         if message.receiver_used_pre_key != self.pre_key.public_key {
             unreachable!()
         }
-        // let prekey = fetch_pre_key(&self.receiver_used_pre_key).expect("pre key is not Some");
 
-        // TODO: I believe the `IdentityKey` has to be converted from a Ed25519 key to a X25519
-        // before it can be used to compute the shared secret.
-
-        // println!("sto dh1 public: {:?}", self.pre_key.secret_key.as_array());
-        // println!(
-        //     "sto dh1 secret: {:?}",
-        //     message.sender_identity_key.as_array()
-        // );
-        let dh1 = InitialMessage::dh(
+        let dh1 = diffie_hellman(
             self.pre_key.secret_key.as_array(),
             IdentityKey::convert_public_ed25519_to_x25519(&message.sender_identity_key).as_array(),
         );
-        let dh2 = InitialMessage::dh(
+        let dh2 = diffie_hellman(
             self.identity_key
                 .get_x25519_key_pair()
                 .secret_key
                 .as_array(),
             message.sender_ephemeral_public_key.as_array(),
         );
-        let dh3 = InitialMessage::dh(
+        let dh3 = diffie_hellman(
             self.pre_key.secret_key.as_array(),
             message.sender_ephemeral_public_key.as_array(),
         );
-
-        println!("Receiver dh1: {:?}", dh1);
-        println!("Receiver dh2: {:?}", dh2);
-        println!("Receiver dh3: {:?}", dh3);
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
         v.extend(dh1);
@@ -198,17 +214,16 @@ impl KeyStore {
             .as_ref()
             .and_then(|key| self.get_and_consume_one_time_key_from_public_key(key))
             .map(|key| {
-                InitialMessage::dh(
+                diffie_hellman(
                     key.secret_key.as_array(),
                     message.sender_ephemeral_public_key.as_array(),
                 )
             })
         {
-            println!("Receiver dh4: {:?}", dh4);
             v.extend(dh4);
         }
 
-        let shared_secret = InitialMessage::kdf(v);
+        let shared_secret = kdf(v);
         println!("Receiver shared secret: {:?}", shared_secret);
 
         todo!()
@@ -235,27 +250,6 @@ impl From<KeyStore> for PublishingKey {
         }
     }
 }
-
-// impl PublishingKey {
-//     pub fn new(
-//         identity_key: &IdentityKey,
-//         pre_key: PublicKey,
-//         number_of_one_time_pre_keys: usize,
-//     ) -> Self {
-//         let signed_pre_key = SignedPreKey::new(identity_key, pre_key);
-
-//         let mut one_time_pre_keys = VecDeque::with_capacity(number_of_one_time_pre_keys);
-//         for _ in 0..number_of_one_time_pre_keys {
-//             one_time_pre_keys.push_back(PublicKey::gen());
-//         }
-
-//         PublishingKey {
-//             public_identity_key: identity_key.get_public_key().to_owned(),
-//             signed_pre_key,
-//             one_time_pre_keys,
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 pub struct PreKeyBundle {
@@ -302,30 +296,18 @@ impl InitialMessage {
 
         let ephemeral_key = KeyPair::gen();
 
-        // println!(
-        //     "init dh1 public: {:?}",
-        //     identity_key.get_secret_key_as_slice()
-        // );
-        // println!(
-        //     "init dh1 secret: {:?}",
-        //     bundle.signed_pre_key.public_key.as_array()
-        // );
-        let dh1 = Self::dh(
+        let dh1 = diffie_hellman(
             identity_key.get_x25519_key_pair().secret_key.as_array(),
             bundle.signed_pre_key.public_key.as_array(),
         );
-        let dh2 = Self::dh(
+        let dh2 = diffie_hellman(
             ephemeral_key.secret_key.as_array(),
             IdentityKey::convert_public_ed25519_to_x25519(&bundle.identity_public_key).as_array(),
         );
-        let dh3 = Self::dh(
+        let dh3 = diffie_hellman(
             ephemeral_key.secret_key.as_array(),
             bundle.signed_pre_key.public_key.as_array(),
         );
-
-        println!("Sender dh1:   {:?}", dh1);
-        println!("Sender dh2:   {:?}", dh2);
-        println!("Sender dh3:   {:?}", dh3);
 
         let mut v = Vec::with_capacity(3 * KEY_LENGTH);
         v.extend(dh1);
@@ -336,14 +318,12 @@ impl InitialMessage {
         if let Some(dh4) = bundle
             .one_time_key
             .as_ref()
-            .map(|key| Self::dh(ephemeral_key.secret_key.as_array(), key.as_array()))
+            .map(|key| diffie_hellman(ephemeral_key.secret_key.as_array(), key.as_array()))
         {
-            println!("Sender dh4:   {:?}", dh4);
-
             v.extend(dh4);
         }
 
-        let shared_secret = Self::kdf(v);
+        let shared_secret = kdf(v);
         println!("Sender shared secret:   {:?}", shared_secret);
         let cipher_text = encrypt_data(&shared_secret, message, None);
 
@@ -354,32 +334,6 @@ impl InitialMessage {
             receiver_used_one_time_key: bundle.one_time_key,
             cipher_text,
         })
-    }
-
-    /// Helper method to compute Diffie-Hellman
-    fn dh(
-        secret: &[u8; CRYPTO_SCALARMULT_SCALARBYTES],
-        public: &[u8; CRYPTO_SCALARMULT_BYTES],
-    ) -> DHArray {
-        use dryoc::classic::crypto_core::crypto_scalarmult;
-
-        let mut dh4: DHArray = [0; KEY_LENGTH];
-        crypto_scalarmult(&mut dh4, secret, public);
-        dh4
-    }
-
-    fn kdf(main_key: Vec<u8>) -> StackByteArray<KEY_LENGTH> {
-        let main_key: [u8; KEY_LENGTH] =
-            *GenericHash::hash_with_defaults_to_vec::<_, Key>(&main_key, None)
-                .expect("hashing main key failed")
-                .as_array();
-
-        println!("Hash of main key: {:?}", main_key);
-        let key = kdf::Key::from(main_key);
-        let context = kdf::Context::from([0; 8]); // TODO: Context should be randomly generated
-        Kdf::from_parts(key, context)
-            .derive_subkey::<StackByteArray<KEY_LENGTH>>(0)
-            .expect("subkey could not be derived")
     }
 }
 
