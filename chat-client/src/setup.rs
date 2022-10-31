@@ -3,6 +3,7 @@ use std::sync::Arc;
 use chat_core::{
     requests::{Register, RegisterResponse},
     x3dh::{KeyStore, PublishingKey},
+    LoginMessage,
 };
 use tokio::sync::Mutex;
 use websockets::{WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
@@ -12,26 +13,33 @@ use crate::{Server, User};
 /// Connect through a websocket and authenticate the given user.
 pub async fn connect_and_authenticate(
     server: &Server,
-    _user: &User,
+    user: &User,
 ) -> Result<(WebSocketReadHalf, Arc<Mutex<WebSocketWriteHalf>>), ()> {
-    let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = server.host()))
+    let (mut rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = server.host()))
         .await
         .unwrap()
         .split();
     let tx = Arc::new(Mutex::new(tx));
 
-    // let login_msg = LoginMessage::new(user.id().to_owned());
-    // let shared_secret = user
-    //     .session()
-    //     .establish_with_server(&server.public_key)
-    //     .expect("shared secret to be computed");
+    if let Ok(frame) = rx.receive().await {
+        let (nonce, _, _) = frame.as_binary().expect("nonce to be sent first by server");
+        println!("Nonce: {nonce:?}");
 
-    // let payload = encrypt_msg(shared_secret, &login_msg);
-    // tx.lock()
-    //     .await
-    //     .send_binary(payload)
-    //     .await
-    //     .expect("message to be send successfully");
+        // Must be a better way to combine these two slices
+        let mut content = Vec::new();
+        content.extend_from_slice(nonce);
+        content.extend_from_slice(user.username().as_bytes());
+
+        let msg = LoginMessage::new(user.id().clone(), user.keystore().sign(&content));
+        tx.lock()
+            .await
+            .send_binary(serde_json::to_vec(&msg).unwrap())
+            .await
+            .expect("login message to be sent");
+        println!("Send auth message");
+    } else {
+        unreachable!()
+    }
 
     Ok((rx, tx))
 }
@@ -53,7 +61,7 @@ pub async fn register(username: String, server: &String) -> Result<User, ()> {
     let user = User {
         id: res.id().to_owned(),
         username,
-        session,
+        keystore: session,
     };
 
     Ok(user)

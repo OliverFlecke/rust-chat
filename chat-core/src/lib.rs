@@ -8,6 +8,7 @@ use std::fmt::Display;
 
 use derive_getters::Getters;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 type UserId = String;
 
@@ -68,13 +69,14 @@ mod chat_msg_test {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize, Getters)]
 pub struct LoginMessage {
-    user_id: UserId,
+    id: Uuid,
+    signature: Vec<u8>,
 }
 
 impl LoginMessage {
-    pub fn new(user_id: UserId) -> Self {
-        LoginMessage { user_id }
+    pub fn new(id: Uuid, signature: Vec<u8>) -> Self {
+        LoginMessage { id, signature }
     }
 }

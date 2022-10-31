@@ -1,13 +1,10 @@
-use chat_core::{
-    requests::{Register, RegisterResponse},
-    x3dh::PublishingKey,
-};
-use derive_getters::Getters;
+use chat_core::requests::{Register, RegisterResponse};
+use chat_server::{login::handle_login, User, Users};
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use listenfd::ListenFd;
-use std::{collections::HashMap, convert::Infallible, sync::Arc};
+use std::convert::Infallible;
 use tokio::{
-    sync::{mpsc, RwLock},
+    sync::mpsc::{self, UnboundedReceiver},
     task::spawn,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -18,8 +15,6 @@ use warp::{
     Filter,
 };
 
-type Users = Arc<RwLock<HashMap<Uuid, User>>>;
-
 #[tokio::main]
 async fn main() {
     let users = Users::default();
@@ -28,8 +23,7 @@ async fn main() {
     // POST /register
     let register = warp::post()
         .and(warp::path("register"))
-        // .and(warp::body::content_length_limit(4024))
-        .and(warp::header::<u64>("content-length"))
+        .and(warp::body::content_length_limit(16384)) // 2^14
         .and(warp::body::json())
         .and(user_filter.clone())
         .and_then(register_user);
@@ -39,7 +33,7 @@ async fn main() {
         .and(user_filter.clone())
         .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| on_connection(socket, users)));
 
-    let service = warp::service(register.or(chat));
+    let service = warp::service(chat.or(register));
     let address = [127, 0, 0, 1];
     let port = 3030;
 
@@ -59,15 +53,9 @@ async fn main() {
     server.serve(make_svc).await.unwrap();
 }
 
-async fn register_user(content_length: u64, register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
-    println!("Content-Length: {content_length}");
+async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
     let id = Uuid::new_v4();
-    let user = User {
-        id,
-        username: register.username().clone(),
-        key_info: register.key_info().clone(),
-        tx: None,
-    };
+    let user = User::new(id, register.username().clone(), register.key_info().clone());
     users.write().await.insert(id, user);
 
     println!(
@@ -76,19 +64,21 @@ async fn register_user(content_length: u64, register: Register, users: Users) ->
     );
 
     Ok(warp::reply::with_status(
-        serde_json::to_string(&RegisterResponse::new(id.to_string()))
+        serde_json::to_string(&RegisterResponse::new(id))
             .expect("serialization in register failed"),
         StatusCode::OK,
     ))
 }
 
 async fn on_connection(ws: WebSocket, users: Users) {
-    let id = Uuid::new_v4();
-    println!("User {id} connected");
-
     let (mut user_tx, mut user_rx) = ws.split();
-    let (tx, rx) = mpsc::unbounded_channel();
+    let (tx, rx): (_, UnboundedReceiver<Message>) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
+
+    let id = handle_login(&users, &mut user_tx, &mut user_rx)
+        .await
+        .expect("login to succeed");
+    println!("User {id} connected and authorized!");
 
     // TODO: It should be possible to avoid spawning a new task.
     // Maybe this is a use case for `select!`
@@ -102,7 +92,7 @@ async fn on_connection(ws: WebSocket, users: Users) {
     });
 
     if let Some(user) = users.write().await.get_mut(&id) {
-        user.tx = Some(tx);
+        user.set_tx(tx);
     }
 
     // Broadcast messages from this user to everyone else
@@ -156,17 +146,9 @@ async fn _send_message(receiver: Uuid, message: Message, users: &Users) {
 }
 
 fn send(text: String, user: &User) {
-    if let Some(tx) = &user.tx {
+    if let Some(tx) = &user.tx() {
         if let Err(_disconnected) = tx.send(Message::text(text)) {}
     } else {
-        eprintln!("No socket to client");
+        eprintln!("Unable to send message: No socket to client");
     }
-}
-
-#[derive(Debug, Getters)]
-pub struct User {
-    id: Uuid,
-    username: String,
-    key_info: PublishingKey,
-    tx: Option<mpsc::UnboundedSender<Message>>,
 }

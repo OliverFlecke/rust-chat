@@ -1,5 +1,6 @@
 use chat_core::x3dh::KeyStore;
 use derive_getters::Getters;
+use uuid::Uuid;
 
 pub mod chat;
 pub mod setup;
@@ -7,12 +8,12 @@ pub mod setup;
 /// Represents the local side of the user.
 #[derive(Debug, Getters)]
 pub struct User {
-    id: String,
+    id: Uuid,
     username: String,
-    session: KeyStore,
+    keystore: KeyStore,
 }
 
 #[derive(Debug, Getters)]
 pub struct Server {
-    host: String,
+    pub host: String,
 }

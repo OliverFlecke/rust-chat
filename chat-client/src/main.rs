@@ -1,6 +1,7 @@
 use chat_client::{
     chat::{disconnect, run_chat},
-    setup::register,
+    setup::{connect_and_authenticate, register},
+    Server,
 };
 
 use clap::Parser;
@@ -24,20 +25,18 @@ struct Args {
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let args = Args::parse();
+    let server = Server { host: args.server };
 
     let user = register(
         args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
-        &args.server,
+        server.host(),
     )
     .await
     .expect("user to be registered");
 
-    let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = &args.server))
-        .await
-        .unwrap()
-        .split();
-    let tx = Arc::new(Mutex::new(tx));
+    let (rx, tx) = connect_and_authenticate(&server, &user).await.unwrap();
 
+    // Setup keyboard event handlers for TERM signals
     let signals = Signals::new(&[SIGINT, SIGTERM, SIGQUIT])?;
     let handle = signals.handle();
     let signals_task = spawn(handle_signals(signals, tx.clone()));

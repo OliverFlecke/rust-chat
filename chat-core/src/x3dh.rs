@@ -147,9 +147,10 @@ impl SignedPreKey {
     }
 
     pub fn verify(&self, public_sign_key: &sign::PublicKey) -> bool {
-        let msg: SignedMessage<Signature, Message> = SignedMessage::from_bytes(&self.signature)
-            .expect("signature cannot be created from bytes");
-        msg.verify(public_sign_key).is_ok()
+        SignedMessage::<Signature, Message>::from_bytes(&self.signature)
+            .expect("signature cannot be created from bytes")
+            .verify(public_sign_key)
+            .is_ok()
     }
 }
 
@@ -174,6 +175,11 @@ impl KeyStore {
                 .map(|_| KeyPair::gen())
                 .collect(),
         }
+    }
+
+    /// Sign a message with this keystore.
+    pub fn sign(&self, message: &[u8]) -> Vec<u8> {
+        self.identity_key.sign(message)
     }
 
     pub fn get_and_consume_one_time_key_from_public_key(
@@ -245,6 +251,7 @@ impl KeyStore {
     }
 }
 
+/// Represents the set of public keys for a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishingKey {
     public_identity_key: sign::PublicKey,
@@ -255,6 +262,17 @@ pub struct PublishingKey {
 impl PublishingKey {
     pub fn get_public_identity_key(&self) -> &sign::PublicKey {
         &self.public_identity_key
+    }
+
+    /// Verify a slice of signed bytes by the public identity key in self.
+    pub fn verify(&self, signed_bytes: &[u8]) -> Result<Message, ()> {
+        let msg = SignedMessage::<Signature, Message>::from_bytes(signed_bytes)
+            .expect("signature cannot be created from bytes");
+
+        match msg.verify(&self.public_identity_key) {
+            Ok(()) => Ok(msg.into_parts().1),
+            Err(_) => Err(()),
+        }
     }
 }
 
