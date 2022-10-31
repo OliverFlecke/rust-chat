@@ -46,8 +46,9 @@ pub async fn register(username: String, server: &String) -> Result<User, ()> {
         .await
         .expect("register to succeed");
 
-    let res: RegisterResponse =
-        serde_json::from_str(res_body.as_str()).expect("response to be valid");
+    let res = res_body.as_str();
+    println!("Got response: {res:?}");
+    let res: RegisterResponse = serde_json::from_str(res).expect("response to be valid");
 
     let user = User {
         id: res.id().to_owned(),

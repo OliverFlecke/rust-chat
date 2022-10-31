@@ -28,7 +28,8 @@ async fn main() {
     // POST /register
     let register = warp::post()
         .and(warp::path("register"))
-        .and(warp::body::content_length_limit(1024))
+        // .and(warp::body::content_length_limit(4024))
+        .and(warp::header::<u64>("content-length"))
         .and(warp::body::json())
         .and(user_filter.clone())
         .and_then(register_user);
@@ -58,7 +59,8 @@ async fn main() {
     server.serve(make_svc).await.unwrap();
 }
 
-async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
+async fn register_user(content_length: u64, register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
+    println!("Content-Length: {content_length}");
     let id = Uuid::new_v4();
     let user = User {
         id,
@@ -67,7 +69,11 @@ async fn register_user(register: Register, users: Users) -> Result<impl warp::Re
         tx: None,
     };
     users.write().await.insert(id, user);
-    println!("User '{}' registered", register.username());
+
+    println!(
+        "User '{username}' registered with id: '{id}'",
+        username = register.username()
+    );
 
     Ok(warp::reply::with_status(
         serde_json::to_string(&RegisterResponse::new(id.to_string()))
@@ -84,6 +90,8 @@ async fn on_connection(ws: WebSocket, users: Users) {
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
+    // TODO: It should be possible to avoid spawning a new task.
+    // Maybe this is a use case for `select!`
     spawn(async move {
         while let Some(message) = rx.next().await {
             user_tx
