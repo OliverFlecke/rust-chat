@@ -2,7 +2,6 @@
 /// a shared secret between two parties. Note that this is just done as an exercise and there are no guaranties for correctness.
 use std::collections::VecDeque;
 
-use derive_getters::Getters;
 use dryoc::{
     classic::crypto_kdf::Key,
     constants::{CRYPTO_SCALARMULT_BYTES, CRYPTO_SCALARMULT_SCALARBYTES},

@@ -4,6 +4,7 @@ use chat_core::{
 };
 use derive_getters::Getters;
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use listenfd::ListenFd;
 use std::{collections::HashMap, convert::Infallible, sync::Arc};
 use tokio::{
     sync::{mpsc, RwLock},
@@ -12,12 +13,12 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 use warp::{
-    hyper::StatusCode,
+    hyper::{self, Server, StatusCode},
     ws::{Message, WebSocket},
     Filter,
 };
 
-type Users = Arc<RwLock<HashMap<String, User>>>;
+type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 
 #[tokio::main]
 async fn main() {
@@ -37,10 +38,24 @@ async fn main() {
         .and(user_filter.clone())
         .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| on_connection(socket, users)));
 
-    let server = register.or(chat);
+    let service = warp::service(register.or(chat));
+    let address = [127, 0, 0, 1];
+    let port = 3030;
 
-    println!("Starting server at 127.0.0.1:3030");
-    warp::serve(server).run(([127, 0, 0, 1], 3030)).await;
+    // Setup auto reload of server
+    let make_svc = hyper::service::make_service_fn(|_: _| {
+        let service = service.clone();
+        async move { Ok::<_, Infallible>(service) }
+    });
+    let mut listenfd = ListenFd::from_env();
+    let server = if let Some(l) = listenfd.take_tcp_listener(0).unwrap() {
+        Server::from_tcp(l).unwrap()
+    } else {
+        Server::bind(&(address, port).into())
+    };
+
+    println!("Starting server at {address:?}:{port}");
+    server.serve(make_svc).await.unwrap();
 }
 
 async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
@@ -51,10 +66,7 @@ async fn register_user(register: Register, users: Users) -> Result<impl warp::Re
         key_info: register.key_info().clone(),
         tx: None,
     };
-    users
-        .write()
-        .await
-        .insert(register.username().to_owned(), user);
+    users.write().await.insert(id, user);
     println!("User '{}' registered", register.username());
 
     Ok(warp::reply::with_status(
