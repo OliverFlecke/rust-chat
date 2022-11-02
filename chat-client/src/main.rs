@@ -1,5 +1,5 @@
 use chat_client::{
-    chat::{disconnect, run_chat},
+    chat::Chat,
     setup::{connect_and_authenticate, register},
     Server,
 };
@@ -11,7 +11,7 @@ use signal_hook_tokio::Signals;
 use std::{io::Error, process::exit, sync::Arc};
 use tokio::{spawn, sync::Mutex};
 use uuid::Uuid;
-use websockets::{WebSocket, WebSocketWriteHalf};
+use websockets::WebSocketWriteHalf;
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -33,6 +33,7 @@ async fn main() -> Result<(), Error> {
     )
     .await
     .expect("user to be registered");
+    let user = Arc::new(user);
 
     let (rx, tx) = connect_and_authenticate(&server, &user).await.unwrap();
 
@@ -41,7 +42,7 @@ async fn main() -> Result<(), Error> {
     let handle = signals.handle();
     let signals_task = spawn(handle_signals(signals, tx.clone()));
 
-    run_chat(&user, rx, tx).await;
+    Chat::new(user, rx, tx).run().await;
 
     _ = handle.clone();
     _ = signals_task;
@@ -54,7 +55,7 @@ async fn handle_signals(mut signals: Signals, tx: Arc<Mutex<WebSocketWriteHalf>>
     while let Some(signal) = signals.next().await {
         match signal {
             SIGTERM | SIGINT | SIGQUIT => {
-                disconnect(&tx).await;
+                Chat::disconnect(&tx).await;
                 exit(0);
             }
             _ => unreachable!(),

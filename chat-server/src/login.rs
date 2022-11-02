@@ -29,7 +29,6 @@ pub async fn handle_login(
         .await
         .map_err(|_| LoginError::UnableToSentNonce)?;
 
-    println!("Wating for login message");
     // Read messages from user channel until a valid auth message has been received.
     // Maybe this should only listen for one message or timeout after a short while.
     while let Some(Ok(msg)) = user_rx.next().await {

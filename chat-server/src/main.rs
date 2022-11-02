@@ -1,5 +1,5 @@
 use chat_core::requests::{Register, RegisterResponse};
-use chat_server::{login::handle_login, User, Users};
+use chat_server::{chat::broadcast_message, login::handle_login, User, Users};
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use listenfd::ListenFd;
 use std::convert::Infallible;
@@ -116,39 +116,4 @@ async fn user_disconnected(id: Uuid, users: &Users) {
     eprintln!("User disconnected: {id}");
 
     users.write().await.remove(&id);
-}
-
-/// Broadcast a message to every other user in the `Users` group.
-async fn broadcast_message(sender_id: Uuid, message: Message, users: &Users) {
-    let text = match message.to_str() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-    println!("Broadcasting message: {text}");
-
-    users
-        .read()
-        .await
-        .iter()
-        .filter(|(&id, _)| id != sender_id)
-        .for_each(|(_, user)| send(text.to_string(), user))
-}
-
-async fn _send_message(receiver: Uuid, message: Message, users: &Users) {
-    let text = match message.to_str() {
-        Ok(s) => s,
-        Err(_) => return,
-    };
-
-    if let Some(user) = users.read().await.get(&receiver) {
-        send(text.to_string(), user);
-    }
-}
-
-fn send(text: String, user: &User) {
-    if let Some(tx) = &user.tx() {
-        if let Err(_disconnected) = tx.send(Message::text(text)) {}
-    } else {
-        eprintln!("Unable to send message: No socket to client");
-    }
 }

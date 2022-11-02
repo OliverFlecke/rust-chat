@@ -14,16 +14,22 @@ use crate::{Server, User};
 pub async fn connect_and_authenticate(
     server: &Server,
     user: &User,
-) -> Result<(WebSocketReadHalf, Arc<Mutex<WebSocketWriteHalf>>), ()> {
-    let (mut rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = server.host()))
+) -> Result<
+    (
+        Arc<Mutex<WebSocketReadHalf>>,
+        Arc<Mutex<WebSocketWriteHalf>>,
+    ),
+    (),
+> {
+    let (rx, tx) = WebSocket::connect(&format!("ws://{server}/chat", server = server.host()))
         .await
         .unwrap()
         .split();
     let tx = Arc::new(Mutex::new(tx));
+    let rx = Arc::new(Mutex::new(rx));
 
-    if let Ok(frame) = rx.receive().await {
+    if let Ok(frame) = rx.lock().await.receive().await {
         let (nonce, _, _) = frame.as_binary().expect("nonce to be sent first by server");
-        println!("Nonce: {nonce:?}");
 
         // Must be a better way to combine these two slices
         let mut content = Vec::new();
@@ -36,7 +42,6 @@ pub async fn connect_and_authenticate(
             .send_binary(serde_json::to_vec(&msg).unwrap())
             .await
             .expect("login message to be sent");
-        println!("Send auth message");
     } else {
         unreachable!()
     }
@@ -49,24 +54,24 @@ pub async fn connect_and_authenticate(
 
 /// Register the user at the server with the given username.
 pub async fn register(username: String, server: &String) -> Result<User, ()> {
-    let session = KeyStore::gen();
-    let res_body = post_register(&username, PublishingKey::from(session.clone()), server)
+    let keystore = KeyStore::gen();
+    let res_body = post_register(&username, PublishingKey::from(keystore.clone()), server)
         .await
         .expect("register to succeed");
 
-    let res = res_body.as_str();
-    println!("Got response: {res:?}");
-    let res: RegisterResponse = serde_json::from_str(res).expect("response to be valid");
+    let res: RegisterResponse =
+        serde_json::from_str(res_body.as_str()).expect("response to be valid");
 
     let user = User {
         id: res.id().to_owned(),
         username,
-        keystore: session,
+        keystore,
     };
 
     Ok(user)
 }
 
+/// Register a user on the server.
 async fn post_register(
     username: &String,
     publishing_key: PublishingKey,
