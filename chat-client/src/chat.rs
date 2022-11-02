@@ -42,29 +42,40 @@ impl Chat {
         spawn(async move {
             let mut user_input = String::new();
             let stdin = io::stdin();
+            let mut receiver: Option<String> = None;
 
             Chat::write_prompt(&username);
             while let Ok(_) = stdin.read_line(&mut user_input) {
                 if user_input.starts_with('/') {
-                    match user_input.trim_end() {
-                        "/exit" => {
+                    let mut splits = user_input.split(' ');
+                    match splits.next() {
+                        Some("/exit") => {
                             Chat::disconnect(&tx).await;
                             break;
+                        }
+                        Some("/receiver") => {
+                            receiver = splits.next().map(|x| x.trim_end().to_string())
                         }
                         _ => eprintln!("Unknown command"),
                     };
                 } else {
-                    let msg = ChatMessage::new(username.clone(), user_input.trim_end().to_string());
+                    if let Some(receiver) = receiver.clone() {
+                        let msg = ChatMessage::to(
+                            username.clone(),
+                            receiver,
+                            user_input.trim_end().to_string(),
+                        );
 
-                    // Send message to server
-                    let mut tx = tx.lock().await;
-                    match tx.send_text(msg.serialize()).await {
-                        Ok(()) => {}
-                        Err(e) => {
-                            eprintln!("Failed to send message: {e}");
-                            break;
-                        }
-                    };
+                        // Send message to server
+                        let mut tx = tx.lock().await;
+                        match tx.send_text(msg.serialize()).await {
+                            Ok(()) => {}
+                            Err(e) => {
+                                eprintln!("Failed to send message: {e}");
+                                break;
+                            }
+                        };
+                    }
                 }
                 user_input.clear();
                 Chat::write_prompt(&username);

@@ -15,6 +15,7 @@ type UserId = String;
 #[derive(Debug, Getters, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatMessage {
     sender: UserId,
+    receiver: Option<String>,
     text: String,
 }
 
@@ -30,7 +31,19 @@ impl ChatMessage {
     /// assert_eq!(msg.text(), "Hello there!");
     /// ```
     pub fn new(sender: UserId, text: String) -> Self {
-        ChatMessage { sender, text }
+        ChatMessage {
+            sender,
+            text,
+            receiver: None,
+        }
+    }
+
+    pub fn to(sender: UserId, receiver: String, text: String) -> Self {
+        ChatMessage {
+            sender,
+            receiver: Some(receiver),
+            text,
+        }
     }
 
     pub fn deserialize(text: impl AsRef<str>) -> Self {
