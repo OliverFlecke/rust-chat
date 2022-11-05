@@ -1,4 +1,5 @@
 use derive_getters::Getters;
+use derive_new::new;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -25,4 +26,10 @@ impl RegisterResponse {
     pub fn new(id: Uuid) -> Self {
         RegisterResponse { id }
     }
+}
+
+/// Request to get a `PreKeyBundle` for a given user.
+#[derive(Debug, Serialize, Deserialize, Getters, new)]
+pub struct PreKeyBundleRequest {
+    user_id: Uuid,
 }

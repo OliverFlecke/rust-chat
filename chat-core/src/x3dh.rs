@@ -130,7 +130,7 @@ impl IdentityKey {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SignedPreKey {
     public_key: PublicKey,
     signature: Vec<u8>,
@@ -264,6 +264,10 @@ impl PublishingKey {
         &self.public_identity_key
     }
 
+    pub fn one_time_pre_keys_len(&self) -> usize {
+        self.one_time_pre_keys.len()
+    }
+
     /// Verify a slice of signed bytes by the public identity key in self.
     pub fn verify(&self, signed_bytes: &[u8]) -> Result<Message, ()> {
         let msg = SignedMessage::<Signature, Message>::from_bytes(signed_bytes)
@@ -290,7 +294,7 @@ impl From<KeyStore> for PublishingKey {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 pub struct PreKeyBundle {
     identity_public_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,

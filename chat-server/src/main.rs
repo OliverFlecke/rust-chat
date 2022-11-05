@@ -1,5 +1,9 @@
-use chat_core::requests::{Register, RegisterResponse};
-use chat_server::{chat::broadcast_message, login::handle_login, User, Users};
+use chat_core::requests::{PreKeyBundleRequest, Register, RegisterResponse};
+use chat_server::{
+    endpoints::{get_pre_key_bundle_for_user, response_error_handler},
+    login::handle_login,
+    User, Users,
+};
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use listenfd::ListenFd;
 use std::convert::Infallible;
@@ -28,14 +32,33 @@ async fn main() {
         .and(user_filter.clone())
         .and_then(register_user);
 
+    // POST /keys/user
+    let get_user_key = warp::path("keys/user")
+        .and(warp::post())
+        .and(warp::body::content_length_limit(1024))
+        .and(warp::body::json())
+        .and(user_filter.clone())
+        .and_then(|request: PreKeyBundleRequest, users| async move {
+            match get_pre_key_bundle_for_user(request, users).await {
+                Ok(x) => Ok(warp::reply::json(&x)),
+                Err(x) => Err(warp::reject::custom(x)),
+            }
+        });
+
     let chat = warp::path("chat")
         .and(warp::ws())
         .and(user_filter.clone())
         .map(|ws: warp::ws::Ws, users| ws.on_upgrade(move |socket| on_connection(socket, users)));
 
-    let service = warp::service(chat.or(register));
+    let routes = chat
+        .or(register)
+        .or(get_user_key)
+        .recover(response_error_handler);
+
+    let service = warp::service(routes);
     let address = [127, 0, 0, 1];
     let port = 3030;
+    // warp::serve(routes).run((address, port)).await;
 
     // Setup auto reload of server
     let make_svc = hyper::service::make_service_fn(|_: _| {
@@ -53,6 +76,9 @@ async fn main() {
     server.serve(make_svc).await.unwrap();
 }
 
+/// Endpoint to register a user.
+/// Takes a `Register` in its request body with the necessary information
+/// about the client to register.
 async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
     let id = Uuid::new_v4();
     let user = User::new(id, register.username().clone(), register.key_info().clone());
@@ -97,14 +123,15 @@ async fn on_connection(ws: WebSocket, users: Users) {
 
     // Broadcast messages from this user to everyone else
     while let Some(result) = user_rx.next().await {
-        let msg = match result {
+        let _msg = match result {
             Ok(msg) => msg,
             Err(e) => {
                 eprintln!("websocket error(uid={id}): {e}");
                 break;
             }
         };
-        broadcast_message(id, msg, &users).await;
+        // broadcast_message(id, msg, &users).await;
+        // TODO: Implement send to user
     }
 
     user_disconnected(id, &users).await;

@@ -138,6 +138,7 @@ name = "chat-core"
 version = "0.1.0"
 dependencies = [
  "derive-getters",
+ "derive-new",
  "dryoc",
  "serde",
  "serde_json",
@@ -151,6 +152,7 @@ dependencies = [
  "chat-core",
  "derive-getters",
  "dryoc",
+ "fake",
  "futures-util",
  "listenfd",
  "serde_json",
@@ -268,6 +270,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive-new"
+version = "0.5.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3418329ca0ad70234b9735dc4ceed10af4df60eff9c8e7b06cb5e520d92c3535"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "digest"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -314,6 +327,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9852635589dc9f9ea1b6fe9f05b50ef208c85c834a562f0c6abb1c475736ec2b"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "fake"
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d68f517805463f3a896a9d29c1d6ff09d3579ded64a7201b4069f8f9c0d52fd"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]

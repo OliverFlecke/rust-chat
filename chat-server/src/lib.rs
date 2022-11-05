@@ -6,8 +6,9 @@ use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 use warp::ws::Message;
 
-pub mod login;
 pub mod chat;
+pub mod endpoints;
+pub mod login;
 
 pub type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 
@@ -32,5 +33,10 @@ impl User {
     /// Sent the transmit channel for this user.
     pub fn set_tx(&mut self, tx: mpsc::UnboundedSender<Message>) {
         self.tx = Some(tx);
+    }
+
+    /// Get this users key info as mutable.
+    pub fn key_info_mut(&mut self) -> &mut PublishingKey {
+        &mut self.key_info
     }
 }
