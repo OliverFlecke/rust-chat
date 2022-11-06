@@ -10,6 +10,7 @@ use chat_core::{
     ChatMessage, Msg, MsgType,
 };
 use serde::{Deserialize, Serialize};
+use signal_hook::low_level::exit;
 use tokio::{
     spawn,
     sync::{Mutex, RwLock},
@@ -23,6 +24,13 @@ use crate::{setup::post_request_pre_bundle_for_user, Server, User};
 pub struct Client {
     server: Server,
     others: RwLock<HashMap<Uuid, ChatContext>>,
+    current_connection: Option<Uuid>,
+}
+
+impl Client {
+    pub fn set_connection(&mut self, id: Uuid) {
+        self.current_connection = Some(id);
+    }
 }
 
 #[derive(Debug)]
@@ -40,7 +48,7 @@ struct ChatState {
 
 #[derive(Debug)]
 pub struct Chat {
-    client: Arc<Client>,
+    client: Arc<RwLock<Client>>,
     user: Arc<RwLock<User>>,
     rx: Arc<Mutex<WebSocketReadHalf>>,
     tx: Arc<Mutex<WebSocketWriteHalf>>,
@@ -53,10 +61,11 @@ impl Chat {
         rx: Arc<Mutex<WebSocketReadHalf>>,
         tx: Arc<Mutex<WebSocketWriteHalf>>,
     ) -> Self {
-        let client = Arc::new(Client {
+        let client = Arc::new(RwLock::new(Client {
             server,
             others: RwLock::new(HashMap::default()),
-        });
+            current_connection: None,
+        }));
 
         Chat {
             client,
@@ -75,6 +84,7 @@ impl Chat {
     /// Setup thread to listen for new messages
     async fn receive_loop(&self) {
         while let Ok(frame) = self.rx.lock().await.receive().await {
+            let mut client = self.client.write().await;
             // Handle basic text messages
             match frame {
                 Frame::Text { payload, .. } => {
@@ -84,7 +94,7 @@ impl Chat {
                 Frame::Binary { payload, .. } => {
                     let msg = serde_json::from_slice::<Msg>(payload.as_slice())
                         .expect("`Msg` could not be deserialized");
-                    println!("Received message from {}", msg.sender());
+                    client.set_connection(*msg.sender());
 
                     match msg.content_type() {
                         MsgType::Initial => {
@@ -94,7 +104,7 @@ impl Chat {
                                 self.user.write().await.keystore_mut().receive(initial_msg);
 
                             // Create chat context with the sender
-                            self.client.others.write().await.insert(
+                            client.others.write().await.insert(
                                 *msg.sender(),
                                 ChatContext::General(ChatState { shared_secret }),
                             );
@@ -105,8 +115,8 @@ impl Chat {
                         MsgType::Text => {
                             let parsed: TextMsg = serde_json::from_slice(msg.content())
                                 .expect("message content is invalid type");
-                            if let Some(context) = self.client.others.read().await.get(msg.sender())
-                            {
+
+                            if let Some(context) = client.others.read().await.get(msg.sender()) {
                                 match context {
                                     ChatContext::Initial(_) => unreachable!(),
                                     ChatContext::General(state) => {
@@ -140,61 +150,22 @@ impl Chat {
 
     /// Send loop
     fn spawn_interactive_terminal(
-        client: Arc<Client>,
+        client: Arc<RwLock<Client>>,
         user: Arc<RwLock<User>>,
         tx: Arc<Mutex<WebSocketWriteHalf>>,
     ) {
         spawn(async move {
             let mut user_input = String::new();
             let stdin = io::stdin();
-            let mut receiver: Option<Uuid> = None;
             let username = user.read().await.username().clone();
 
             Chat::write_prompt(&username);
             while let Ok(_) = stdin.read_line(&mut user_input) {
                 if user_input.starts_with('/') {
-                    // TODO: It would be nice to split this out to its own function
-                    let mut splits = user_input.trim_end().split(' ');
-                    match splits.next() {
-                        Some("/exit") => {
-                            Chat::disconnect(&tx).await;
-                            break;
-                        }
-                        // Connect to a user
-                        Some("/connect") => {
-                            if let Some(r) = splits.next().map(|x| x.trim_end().to_string()) {
-                                match Uuid::from_str(r.as_str()) {
-                                    Ok(id) => {
-                                        match post_request_pre_bundle_for_user(
-                                            client.server.host(),
-                                            id,
-                                        )
-                                        .await
-                                        {
-                                            Ok(b) => {
-                                                client
-                                                    .others
-                                                    .write()
-                                                    .await
-                                                    .insert(id, ChatContext::Initial(b));
-                                                receiver = Some(id);
-                                            }
-                                            Err(_) => eprintln!("User not found"),
-                                        };
-                                    }
-                                    Err(_) => {
-                                        println!("Receiver has to be a uuid");
-                                    }
-                                }
-                            }
-                        }
-
-                        // Unknown commads
-                        Some(x) => eprintln!("Unknown command {x}"),
-                        None => eprintln!("No command"),
-                    };
+                    command_handler(&user_input, &tx, &client).await
                 } else {
-                    if let Some(receiver) = receiver.clone() {
+                    let client = client.read().await;
+                    if let Some(receiver) = client.current_connection {
                         // The state should not be removed here, as an error can happen inside the statement,
                         // causing the state to become lost. It would be better to only remove it when it has been used,
                         // but the value has to be owned in order to be consumed during decryption.
@@ -238,7 +209,6 @@ impl Chat {
 
                             // Send message to server
                             let mut tx = tx.lock().await;
-                            println!("Sending msg to server");
                             match tx
                                 .send_binary(
                                     serde_json::to_vec(&msg).expect("message to be serialized"),
@@ -281,6 +251,48 @@ impl Chat {
         print!("{username}> ");
         io::stdout().flush().unwrap();
     }
+}
+
+async fn command_handler(
+    user_input: &String,
+    tx: &Arc<Mutex<WebSocketWriteHalf>>,
+    client: &Arc<RwLock<Client>>,
+) {
+    let mut client = client.write().await;
+    let mut splits = user_input.trim_end().split(' ');
+    match splits.next() {
+        Some("/exit") => {
+            Chat::disconnect(tx).await;
+            exit(0);
+        }
+        // Connect to a user
+        Some("/connect") => {
+            if let Some(r) = splits.next().map(|x| x.trim_end().to_string()) {
+                match Uuid::from_str(r.as_str()) {
+                    Ok(id) => {
+                        match post_request_pre_bundle_for_user(client.server.host(), id).await {
+                            Ok(b) => {
+                                client
+                                    .others
+                                    .write()
+                                    .await
+                                    .insert(id, ChatContext::Initial(b));
+                                client.set_connection(id);
+                            }
+                            Err(_) => eprintln!("User not found"),
+                        };
+                    }
+                    Err(_) => {
+                        println!("Receiver has to be a uuid");
+                    }
+                }
+            }
+        }
+
+        // Unknown commads
+        Some(x) => eprintln!("Unknown command {x}"),
+        None => eprintln!("No command"),
+    };
 }
 
 #[derive(Debug, Serialize, Deserialize)]
