@@ -1,5 +1,6 @@
 use chat_core::requests::{PreKeyBundleRequest, Register, RegisterResponse};
 use chat_server::{
+    chat::forward_message,
     endpoints::{get_pre_key_bundle_for_user, response_error_handler},
     login::handle_login,
     User, Users,
@@ -33,8 +34,8 @@ async fn main() {
         .and_then(register_user);
 
     // POST /keys/user
-    let get_user_key = warp::path("keys/user")
-        .and(warp::post())
+    let get_user_key = warp::post()
+        .and(warp::path!("keys" / "user"))
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
         .and(user_filter.clone())
@@ -123,15 +124,18 @@ async fn on_connection(ws: WebSocket, users: Users) {
 
     // Broadcast messages from this user to everyone else
     while let Some(result) = user_rx.next().await {
-        let _msg = match result {
+        // println!("Got message from {id}: {result:?}");
+        let msg = match result {
             Ok(msg) => msg,
             Err(e) => {
                 eprintln!("websocket error(uid={id}): {e}");
                 break;
             }
         };
-        // broadcast_message(id, msg, &users).await;
-        // TODO: Implement send to user
+
+        if let Err(e) = forward_message(msg, &users).await {
+            eprintln!("Failed to forward message: {e:?}");
+        }
     }
 
     user_disconnected(id, &users).await;

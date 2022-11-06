@@ -9,7 +9,10 @@ use futures::stream::StreamExt;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
 use std::{io::Error, process::exit, sync::Arc};
-use tokio::{spawn, sync::Mutex};
+use tokio::{
+    spawn,
+    sync::{Mutex, RwLock},
+};
 use uuid::Uuid;
 use websockets::WebSocketWriteHalf;
 
@@ -33,7 +36,6 @@ async fn main() -> Result<(), Error> {
     )
     .await
     .expect("user to be registered");
-    let user = Arc::new(user);
 
     let (rx, tx) = connect_and_authenticate(&server, &user).await.unwrap();
 
@@ -42,7 +44,8 @@ async fn main() -> Result<(), Error> {
     let handle = signals.handle();
     let signals_task = spawn(handle_signals(signals, tx.clone()));
 
-    Chat::new(user, rx, tx).run().await;
+    let user = Arc::new(RwLock::new(user));
+    Chat::new(server, user, rx, tx).run().await;
 
     _ = handle.clone();
     _ = signals_task;

@@ -177,6 +177,10 @@ impl KeyStore {
         }
     }
 
+    pub fn get_identity_key(&self) -> &IdentityKey {
+        &self.identity_key
+    }
+
     /// Sign a message with this keystore.
     pub fn sign(&self, message: &[u8]) -> Vec<u8> {
         self.identity_key.sign(message)

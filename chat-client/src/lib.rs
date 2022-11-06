@@ -13,6 +13,12 @@ pub struct User {
     keystore: KeyStore,
 }
 
+impl User {
+    pub fn keystore_mut(&mut self) -> &mut KeyStore {
+        &mut self.keystore
+    }
+}
+
 #[derive(Debug, Getters)]
 pub struct Server {
     pub host: String,

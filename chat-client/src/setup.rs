@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use chat_core::{
-    requests::{Register, RegisterResponse},
-    x3dh::{KeyStore, PublishingKey},
+    requests::{PreKeyBundleRequest, Register, RegisterResponse},
+    x3dh::{KeyStore, PreKeyBundle, PublishingKey},
     LoginMessage,
 };
 use tokio::sync::Mutex;
+use uuid::Uuid;
 use websockets::{WebSocket, WebSocketReadHalf, WebSocketWriteHalf};
 
 use crate::{Server, User};
@@ -93,6 +94,30 @@ async fn post_register(
         Err(e) => {
             eprintln!("{:?}", e);
             Err(())
+        }
+    }
+}
+
+/// POST a request for a pre-key bundle for another user.
+pub async fn post_request_pre_bundle_for_user(
+    server: &String,
+    user_id: Uuid,
+) -> Result<PreKeyBundle, ()> {
+    match reqwest::Client::new()
+        .post(format!("http://{server}/keys/user"))
+        .body(serde_json::to_string(&PreKeyBundleRequest::new(user_id)).unwrap())
+        .send()
+        .await
+    {
+        Ok(res) => serde_json::from_slice::<PreKeyBundle>(
+            &res.bytes()
+                .await
+                .expect("response could not be deserialized"),
+        )
+        .map_err(|_| ()),
+        Err(e) => {
+            eprintln!("{e:?}");
+            todo!()
         }
     }
 }

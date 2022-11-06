@@ -7,10 +7,18 @@ pub mod x3dh;
 use std::fmt::Display;
 
 use derive_getters::Getters;
+use derive_new::new;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 type UserId = String;
+
+#[derive(Debug, Serialize, Deserialize, new, Getters)]
+pub struct Msg {
+    sender: Uuid,
+    receiver: Uuid,
+    content: Vec<u8>,
+}
 
 #[derive(Debug, Getters, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChatMessage {
@@ -53,14 +61,6 @@ impl ChatMessage {
     pub fn serialize(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
-
-    // pub fn encrypt(&self, secret_key: &SecretKey) -> Vec<u8> {
-    //     todo!()
-    // }
-
-    // pub fn decrypt(secret_key: &SecretKey, cipher_text: &[u8]) -> Self {
-    //     todo!()
-    // }
 }
 
 impl Display for ChatMessage {
