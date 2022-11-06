@@ -17,7 +17,14 @@ type UserId = String;
 pub struct Msg {
     sender: Uuid,
     receiver: Uuid,
+    content_type: MsgType,
     content: Vec<u8>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum MsgType {
+    Initial,
+    Text,
 }
 
 #[derive(Debug, Getters, Serialize, Deserialize, PartialEq, Eq)]

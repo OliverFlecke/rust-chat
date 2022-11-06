@@ -4,28 +4,54 @@ use std::collections::VecDeque;
 
 use dryoc::{
     classic::crypto_kdf::Key,
-    constants::{CRYPTO_SCALARMULT_BYTES, CRYPTO_SCALARMULT_SCALARBYTES},
+    constants::{
+        CRYPTO_SCALARMULT_BYTES, CRYPTO_SCALARMULT_SCALARBYTES, CRYPTO_SECRETBOX_NONCEBYTES,
+    },
     dryocbox::{KeyPair, PublicKey},
-    dryocsecretbox::{DryocSecretBox, Nonce},
+    dryocsecretbox::DryocSecretBox,
     generichash::GenericHash,
     kdf::{self, Kdf},
     sign::{self, Message, Signature, SignedMessage, SigningKeyPair},
-    types::{ByteArray, Bytes, NewByteArray, StackByteArray},
+    types::{ByteArray, Bytes, NewByteArray},
 };
 use serde::{Deserialize, Serialize};
 
 const KEY_LENGTH: usize = 32;
+pub const NONCE_SIZE: usize = CRYPTO_SECRETBOX_NONCEBYTES;
 
-fn encrypt_data(
-    secret_key: &dryoc::dryocsecretbox::Key,
+pub use dryoc::types::StackByteArray;
+
+pub type Nonce = [u8; CRYPTO_SECRETBOX_NONCEBYTES];
+pub type SharedSecret = [u8; KEY_LENGTH];
+
+pub fn encrypt_data(
+    secret_key: &SharedSecret,
     message: &[u8],
     _associated_data: Option<Vec<u8>>, // TODO: Is this needed?
 ) -> (Vec<u8>, Nonce) {
     let nonce = dryoc::dryocsecretbox::Nonce::gen();
     (
         DryocSecretBox::encrypt_to_vecbox(message, &nonce, secret_key).to_vec(),
-        nonce,
+        *nonce.as_array(),
     )
+}
+
+#[derive(Debug)]
+pub enum DecryptionError {
+    FailedToReadCipherText,
+    InvalidSecret,
+}
+
+/// Decrypt a cipher text, given a shared secret and a nonce.
+pub fn decrypt(
+    shared_secret: &SharedSecret,
+    cipher_text: &Vec<u8>,
+    nonce: &Nonce,
+) -> Result<Vec<u8>, DecryptionError> {
+    Ok(DryocSecretBox::from_bytes(cipher_text)
+        .map_err(|_| DecryptionError::FailedToReadCipherText)?
+        .decrypt_to_vec(nonce, shared_secret)
+        .map_err(|_| DecryptionError::InvalidSecret)?)
 }
 
 /// Helper method to compute Diffie-Hellman
@@ -204,11 +230,24 @@ impl KeyStore {
     /// Receive a `InitialMessage` intended for this store
     /// This will calculate the shared secret between the two parties and
     /// decrypt the cipher text stored in `message`.
-    pub fn receive(&mut self, msg: InitialMessage) -> Vec<u8> {
+    pub fn receive(&mut self, msg: InitialMessage) -> (Vec<u8>, [u8; KEY_LENGTH]) {
         if msg.receiver_used_pre_key != self.pre_key.public_key {
             unreachable!()
         }
 
+        let context = self.compute_diffie_hellman_receive_side(&msg);
+
+        let (shared_secret, _) = kdf(context, msg.subkey, Some(msg.kdf_context));
+        println!("Receiver shared secret: {:?}", shared_secret);
+
+        (
+            decrypt(&shared_secret.as_array(), &msg.cipher_text, &msg.nonce)
+                .expect("decryption failed"),
+            *shared_secret.as_array(),
+        )
+    }
+
+    fn compute_diffie_hellman_receive_side(&mut self, msg: &InitialMessage) -> Vec<u8> {
         let dh1 = diffie_hellman(
             self.pre_key.secret_key.as_array(),
             IdentityKey::convert_public_ed25519_to_x25519(&msg.sender_identity_key).as_array(),
@@ -224,11 +263,10 @@ impl KeyStore {
             self.pre_key.secret_key.as_array(),
             msg.sender_ephemeral_public_key.as_array(),
         );
-
-        let mut v = Vec::with_capacity(3 * KEY_LENGTH);
-        v.extend(dh1);
-        v.extend(dh2);
-        v.extend(dh3);
+        let mut context = Vec::with_capacity(3 * KEY_LENGTH);
+        context.extend(dh1);
+        context.extend(dh2);
+        context.extend(dh3);
 
         // Include one_time_key if present
         if let Some(dh4) = msg
@@ -242,16 +280,10 @@ impl KeyStore {
                 )
             })
         {
-            v.extend(dh4);
+            context.extend(dh4);
         }
 
-        let (shared_secret, _) = kdf(v, msg.subkey, Some(msg.kdf_context));
-        println!("Receiver shared secret: {:?}", shared_secret);
-
-        DryocSecretBox::from_bytes(&msg.cipher_text)
-            .expect("unable to create secret box from bytes")
-            .decrypt_to_vec(&msg.nonce, &shared_secret)
-            .expect("message to be decryted")
+        context
     }
 }
 
@@ -298,7 +330,7 @@ impl From<KeyStore> for PublishingKey {
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreKeyBundle {
     identity_public_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,
@@ -339,13 +371,39 @@ impl InitialMessage {
         identity_key: &IdentityKey,
         bundle: PreKeyBundle,
         message: &[u8],
-    ) -> Result<Self, InitialMessageTryFromError> {
+    ) -> Result<(Self, [u8; KEY_LENGTH]), InitialMessageTryFromError> {
         if !bundle.signed_pre_key.verify(&bundle.identity_public_key) {
             return Err(InitialMessageTryFromError::InvalidPreKeySignature);
         }
 
         let ephemeral_key = KeyPair::gen();
+        let context = Self::compute_dh_context(identity_key, &bundle, &ephemeral_key);
 
+        let subkey = 0;
+        let (shared_secret, kdf_context) = kdf(context, subkey, None);
+        let (cipher_text, nonce) = encrypt_data(&shared_secret.as_array(), message, None);
+
+        Ok((
+            InitialMessage {
+                sender_identity_key: identity_key.get_public_key().to_owned(),
+                sender_ephemeral_public_key: ephemeral_key.public_key,
+                receiver_used_pre_key: bundle.signed_pre_key.public_key,
+                receiver_used_one_time_key: bundle.one_time_key,
+                cipher_text,
+                nonce,
+                kdf_context,
+                subkey,
+            },
+            *shared_secret.as_array(),
+        ))
+    }
+
+    /// Computes the Diffe Hellman context as required for the x3dh exchange.
+    fn compute_dh_context(
+        identity_key: &IdentityKey,
+        bundle: &PreKeyBundle,
+        ephemeral_key: &KeyPair,
+    ) -> Vec<u8> {
         let dh1 = diffie_hellman(
             identity_key.get_x25519_key_pair().secret_key.as_array(),
             bundle.signed_pre_key.public_key.as_array(),
@@ -373,20 +431,7 @@ impl InitialMessage {
             v.extend(dh4);
         }
 
-        let subkey = 0;
-        let (shared_secret, kdf_context) = kdf(v, subkey, None);
-        let (cipher_text, nonce) = encrypt_data(&shared_secret, message, None);
-
-        Ok(InitialMessage {
-            sender_identity_key: identity_key.get_public_key().to_owned(),
-            sender_ephemeral_public_key: ephemeral_key.public_key,
-            receiver_used_pre_key: bundle.signed_pre_key.public_key,
-            receiver_used_one_time_key: bundle.one_time_key,
-            cipher_text,
-            nonce,
-            kdf_context,
-            subkey,
-        })
+        v
     }
 }
 
@@ -423,14 +468,15 @@ mod test {
         let alice_identity_key = IdentityKey::gen();
 
         let pre_key_bundle = PreKeyBundle::create_from(&mut published_keys);
-        let initial_msg = InitialMessage::create_from(&alice_identity_key, pre_key_bundle, message)
-            .expect("message to have been sent");
+        let (initial_msg, _) =
+            InitialMessage::create_from(&alice_identity_key, pre_key_bundle, message)
+                .expect("message to have been sent");
 
         // After generating the initial message, one OTK should have been consumed
         assert_eq!(published_keys.one_time_pre_keys.len(), 99);
 
         // Step 3 - Bob receives the initial message from Alice
-        let decrypted_msg = bob_store.receive(initial_msg);
+        let (decrypted_msg, _) = bob_store.receive(initial_msg);
         assert_eq!(decrypted_msg, message);
     }
 
