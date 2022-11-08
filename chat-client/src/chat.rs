@@ -134,7 +134,9 @@ impl Chat {
 
                                         let content = String::from_utf8(content)
                                             .expect("text message was not valid utf8");
-                                        println!("{sender}: {content}", sender = msg.sender());
+                                        println!("\r{sender}: {content}", sender = msg.sender());
+                                        Chat::write_prompt(self.user.read().await.username());
+
                                     }
                                 }
                             }
@@ -146,6 +148,9 @@ impl Chat {
                 }
             }
         }
+
+        println!("Server disconnected");
+        exit(1);
     }
 
     /// Send loop
