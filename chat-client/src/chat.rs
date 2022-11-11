@@ -9,6 +9,7 @@ use chat_core::{
     x3dh::{decrypt, encrypt_data, InitialMessage, PreKeyBundle, NONCE_SIZE},
     ChatMessage, Msg, MsgType,
 };
+use dryoc::types::ByteArray;
 use serde::{Deserialize, Serialize};
 use signal_hook::low_level::exit;
 use tokio::{
@@ -97,9 +98,15 @@ impl Chat {
                     client.set_connection(*msg.sender());
 
                     match msg.content_type() {
+                        // Handle the initial message. This will setup a new conversation with this user
                         MsgType::Initial => {
                             let initial_msg: InitialMessage = serde_json::from_slice(msg.content())
                                 .expect("initial message to be deserialized");
+
+                            println!(
+                                "\rReceived message from unknown user with public key: {key}",
+                                key = hex::encode(initial_msg.sender_identity_key().as_array())
+                            );
                             let (decrypted_msg, shared_secret) =
                                 self.user.write().await.keystore_mut().receive(initial_msg);
 
@@ -110,13 +117,14 @@ impl Chat {
                             );
 
                             let content = String::from_utf8(decrypted_msg).expect("valid message");
-                            println!("{sender} - Initial msg: {content}", sender = msg.sender());
+                            Chat::write_message(msg.sender(), &content);
                         }
-                        MsgType::Text => {
-                            let parsed: TextMsg = serde_json::from_slice(msg.content())
-                                .expect("message content is invalid type");
 
+                        // Handle text message types
+                        MsgType::Text => {
                             if let Some(context) = client.others.read().await.get(msg.sender()) {
+                                let parsed: TextMsg = serde_json::from_slice(msg.content())
+                                    .expect("message content is invalid type");
                                 match context {
                                     ChatContext::Initial(_) => unreachable!(),
                                     ChatContext::General(state) => {
@@ -134,7 +142,7 @@ impl Chat {
 
                                         let content = String::from_utf8(content)
                                             .expect("text message was not valid utf8");
-                                        println!("{sender}: {content}", sender = msg.sender());
+                                        Chat::write_message(msg.sender(), &content);
                                     }
                                 }
                             }
@@ -162,7 +170,7 @@ impl Chat {
             Chat::write_prompt(&username);
             while let Ok(_) = stdin.read_line(&mut user_input) {
                 if user_input.starts_with('/') {
-                    command_handler(&user_input, &tx, &client).await
+                    command_handler(&user_input, &tx, &client, &user).await
                 } else {
                     let client = client.read().await;
                     if let Some(receiver) = client.current_connection {
@@ -251,12 +259,17 @@ impl Chat {
         print!("{username}> ");
         io::stdout().flush().unwrap();
     }
+
+    fn write_message(sender: &Uuid, msg: &String) {
+        println!("{sender}: {msg}");
+    }
 }
 
 async fn command_handler(
     user_input: &String,
     tx: &Arc<Mutex<WebSocketWriteHalf>>,
     client: &Arc<RwLock<Client>>,
+    user: &Arc<RwLock<User>>,
 ) {
     let mut client = client.write().await;
     let mut splits = user_input.trim_end().split(' ');
@@ -264,6 +277,19 @@ async fn command_handler(
         Some("/exit") => {
             Chat::disconnect(tx).await;
             exit(0);
+        }
+        Some("/public") => {
+            println!(
+                "Public key: {key}",
+                key = hex::encode(
+                    user.read()
+                        .await
+                        .keystore
+                        .get_identity_key()
+                        .get_public_key()
+                        .as_array()
+                )
+            );
         }
         // Connect to a user
         Some("/connect") => {

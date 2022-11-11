@@ -2,6 +2,7 @@
 /// a shared secret between two parties. Note that this is just done as an exercise and there are no guaranties for correctness.
 use std::collections::VecDeque;
 
+use derive_getters::Getters;
 use dryoc::{
     classic::crypto_kdf::Key,
     constants::{
@@ -238,7 +239,6 @@ impl KeyStore {
         let context = self.compute_diffie_hellman_receive_side(&msg);
 
         let (shared_secret, _) = kdf(context, msg.subkey, Some(msg.kdf_context));
-        println!("Receiver shared secret: {:?}", shared_secret);
 
         (
             decrypt(&shared_secret.as_array(), &msg.cipher_text, &msg.nonce)
@@ -349,7 +349,7 @@ impl PreKeyBundle {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Getters)]
 pub struct InitialMessage {
     sender_identity_key: sign::PublicKey,
     sender_ephemeral_public_key: PublicKey,
