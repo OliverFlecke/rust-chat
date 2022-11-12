@@ -1,14 +1,15 @@
 use chat_client::{
     chat::Chat,
     setup::{connect_and_authenticate, register},
-    Server,
+    user_data::{read_user_data, write_user},
+    Server, User,
 };
 
 use clap::Parser;
 use futures::stream::StreamExt;
 use signal_hook::consts::{SIGINT, SIGQUIT, SIGTERM};
 use signal_hook_tokio::Signals;
-use std::{io::Error, process::exit, sync::Arc};
+use std::{error::Error, process::exit, sync::Arc};
 use tokio::{
     spawn,
     sync::{Mutex, RwLock},
@@ -16,26 +17,25 @@ use tokio::{
 use uuid::Uuid;
 use websockets::WebSocketWriteHalf;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[arg(short, long)]
     server: String,
     #[arg(short, long)]
     username: Option<String>,
+    #[arg(short, long)]
+    config: Option<String>,
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
-    let server = Server { host: args.server };
+    let server = Server {
+        host: args.server.clone(),
+    };
 
-    let user = register(
-        args.username.unwrap_or_else(|| Uuid::new_v4().to_string()),
-        server.host(),
-    )
-    .await
-    .expect("user to be registered");
+    let user = get_user(args).await?;
 
     let (rx, tx) = connect_and_authenticate(&server, &user).await.unwrap();
 
@@ -51,6 +51,21 @@ async fn main() -> Result<(), Error> {
     _ = signals_task;
 
     Ok(())
+}
+
+async fn get_user(args: Args) -> Result<User, Box<dyn Error>> {
+    if let Some(config) = args.config {
+        read_user_data(config).await
+    } else {
+        let username = args.username.unwrap_or_else(|| Uuid::new_v4().to_string());
+        let user = register(username.clone(), &args.server)
+            .await
+            .expect("user to be registered");
+
+        write_user(format!("{}.json", username).as_str(), &user).await?;
+
+        Ok(user)
+    }
 }
 
 /// Handler for process terminal signals.

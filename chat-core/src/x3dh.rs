@@ -97,7 +97,7 @@ fn kdf(
 /// **never** be used for actual encryption.
 /// These are Ed25519 keys, NOT X25519 which is used everywhere else for
 /// public key encryption and authentication.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IdentityKey {
     key: SigningKeyPair<sign::PublicKey, sign::SecretKey>,
 }
@@ -183,7 +183,7 @@ impl SignedPreKey {
 
 /// Key store to represent the all the relevant data for communicating securely
 /// for a client.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KeyStore {
     identity_key: IdentityKey,
     pre_key: KeyPair,

@@ -1,12 +1,14 @@
 use chat_core::x3dh::KeyStore;
 use derive_getters::Getters;
+use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
 pub mod chat;
 pub mod setup;
+pub mod user_data;
 
 /// Represents the local side of the user.
-#[derive(Debug, Getters)]
+#[derive(Debug, Getters, Serialize, Deserialize)]
 pub struct User {
     id: Uuid,
     username: String,
