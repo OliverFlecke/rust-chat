@@ -1,10 +1,9 @@
 use std::convert::Infallible;
 
 use crate::{User, Users};
-use chat_core::requests::{Register, RegisterResponse};
-use serde::Serialize;
+use chat_core::requests::{ProfileResponse, Register, RegisterResponse};
 use uuid::Uuid;
-use warp::{hyper::StatusCode, Reply};
+use warp::hyper::StatusCode;
 
 use super::ResponseError;
 
@@ -31,27 +30,16 @@ pub async fn register_user(
     ))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct Profile {
-    id: Uuid,
-    username: String,
-}
-
-impl Reply for Profile {
-    fn into_response(self) -> warp::reply::Response {
-        warp::reply::json(&self).into_response()
-    }
-}
-
 /// Get a user's profile by its user id.
-pub async fn get_user_profile_by_id(users: Users, id: Uuid) -> Result<Profile, ResponseError> {
-    if let Some(user) = users.read().await.get(&id) {
-        Ok(Profile {
-            id,
-            username: user.username.clone(),
-        })
-    } else {
-        Err(ResponseError::UserNotFound(id.to_owned()))
+pub async fn get_user_profile_by_id(
+    users: Users,
+    id: Uuid,
+) -> Result<ProfileResponse, ResponseError> {
+    println!("Lookup user '{id}'");
+
+    match users.read().await.get(&id) {
+        Some(user) => Ok(ProfileResponse::new(id, user.username().to_owned())),
+        None => Err(ResponseError::UserNotFound(id.to_owned())),
     }
 }
 
@@ -75,7 +63,7 @@ mod test {
         // Act
         let actual = get_user_profile_by_id(users, id).await;
         assert!(actual.is_ok());
-        assert_eq!(actual.unwrap(), Profile { id, username });
+        assert_eq!(actual.unwrap(), ProfileResponse::new(id, username));
     }
 
     #[tokio::test]

@@ -33,3 +33,9 @@ impl RegisterResponse {
 pub struct PreKeyBundleRequest {
     user_id: Uuid,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, new, Getters)]
+pub struct ProfileResponse {
+    id: Uuid,
+    username: String,
+}

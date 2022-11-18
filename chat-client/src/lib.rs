@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub mod chat;
 pub mod setup;
 pub mod user_data;
+mod server_api;
 
 /// Represents the local side of the user.
 #[derive(Debug, Getters, Serialize, Deserialize)]

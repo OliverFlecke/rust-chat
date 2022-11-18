@@ -4,7 +4,7 @@ use chat_server::{
     login::handle_login,
     services::{
         get_pre_key_bundle_for_user, response_error_handler,
-        user::{get_user_profile_by_id, register_user},
+        user_service::{get_user_profile_by_id, register_user},
     },
     Users,
 };

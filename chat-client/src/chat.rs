@@ -6,6 +6,7 @@ use std::{
 };
 
 use chat_core::{
+    requests::ProfileResponse,
     x3dh::{decrypt, encrypt_data, InitialMessage, PreKeyBundle, NONCE_SIZE},
     ChatMessage, Msg, MsgType,
 };
@@ -43,6 +44,7 @@ enum ChatContext {
 /// Represents a context for a chat with another user.
 #[derive(Debug)]
 struct ChatState {
+    profile: ProfileResponse,
     shared_secret: [u8; 32],
     // TODO: This should be migrated to use the Double Racket algorithm
 }
@@ -110,14 +112,23 @@ impl Chat {
                             let (decrypted_msg, shared_secret) =
                                 self.user.write().await.keystore_mut().receive(initial_msg);
 
+                            let profile = client
+                                .server
+                                .get_user_profile_by_id(msg.sender())
+                                .await
+                                .expect("sender could not be found");
+
+                            let content = String::from_utf8(decrypted_msg).expect("valid message");
+                            Chat::write_message(profile.username(), &content);
+
                             // Create chat context with the sender
                             client.others.write().await.insert(
                                 *msg.sender(),
-                                ChatContext::General(ChatState { shared_secret }),
+                                ChatContext::General(ChatState {
+                                    shared_secret,
+                                    profile,
+                                }),
                             );
-
-                            let content = String::from_utf8(decrypted_msg).expect("valid message");
-                            Chat::write_message(msg.sender(), &content);
                         }
 
                         // Handle text message types
@@ -142,7 +153,7 @@ impl Chat {
 
                                         let content = String::from_utf8(content)
                                             .expect("text message was not valid utf8");
-                                        Chat::write_message(msg.sender(), &content);
+                                        Chat::write_message(state.profile.username(), &content);
                                         Chat::write_prompt(self.user.read().await.username());
                                     }
                                 }
@@ -193,10 +204,19 @@ impl Chat {
                                     )
                                     .expect("initial message could not be created");
 
+                                    let profile = client
+                                        .server
+                                        .get_user_profile_by_id(&receiver)
+                                        .await
+                                        .expect("sender could not be found");
+
                                     // Reinsert the calculated shared secret for future messages
                                     others.insert(
                                         receiver,
-                                        ChatContext::General(ChatState { shared_secret }),
+                                        ChatContext::General(ChatState {
+                                            shared_secret,
+                                            profile,
+                                        }),
                                     );
 
                                     (
@@ -261,8 +281,8 @@ impl Chat {
         io::stdout().flush().unwrap();
     }
 
-    fn write_message(sender: &Uuid, msg: &String) {
-        println!("{sender}: {msg}");
+    fn write_message(sender: &str, msg: &String) {
+        println!("\r{sender}: {msg}");
     }
 }
 
