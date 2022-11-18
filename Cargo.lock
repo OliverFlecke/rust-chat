@@ -157,6 +157,7 @@ dependencies = [
  "fake",
  "futures-util",
  "listenfd",
+ "serde",
  "serde_json",
  "tokio",
  "tokio-stream",

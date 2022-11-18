@@ -157,6 +157,8 @@ impl IdentityKey {
     }
 }
 
+/// Represents a public pre-key, along with its signature, which can be verified
+/// by supplying the public part of the signing key.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SignedPreKey {
     public_key: PublicKey,
@@ -312,6 +314,18 @@ impl PublishingKey {
         match msg.verify(&self.public_identity_key) {
             Ok(()) => Ok(msg.into_parts().1),
             Err(_) => Err(()),
+        }
+    }
+
+    // #[cfg(test)] // TODO: Can this be hidden to only be included when running tests?
+    pub fn gen_fake() -> Self {
+        let id_key = IdentityKey::gen();
+        let pre_key = KeyPair::gen();
+
+        PublishingKey {
+            public_identity_key: id_key.get_public_key().to_owned(),
+            signed_pre_key: SignedPreKey::new(&id_key, pre_key.public_key),
+            one_time_pre_keys: VecDeque::new(),
         }
     }
 }

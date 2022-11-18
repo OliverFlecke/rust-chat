@@ -7,8 +7,8 @@ use uuid::Uuid;
 use warp::ws::Message;
 
 pub mod chat;
-pub mod endpoints;
 pub mod login;
+pub mod services;
 
 pub type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 

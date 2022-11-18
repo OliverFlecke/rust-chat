@@ -1,9 +1,12 @@
-use chat_core::requests::{PreKeyBundleRequest, Register, RegisterResponse};
+use chat_core::requests::PreKeyBundleRequest;
 use chat_server::{
     chat::forward_message,
-    endpoints::{get_pre_key_bundle_for_user, response_error_handler},
     login::handle_login,
-    User, Users,
+    services::{
+        get_pre_key_bundle_for_user, response_error_handler,
+        user::{get_user_profile_by_id, register_user},
+    },
+    Users,
 };
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use listenfd::ListenFd;
@@ -15,7 +18,7 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 use warp::{
-    hyper::{self, Server, StatusCode},
+    hyper::{self, Server},
     ws::{Message, WebSocket},
     Filter,
 };
@@ -46,6 +49,18 @@ async fn main() {
             }
         });
 
+    // GET /user/:id
+    let get_user_by_id_filter = warp::get()
+        .and(warp::path("user"))
+        .and(warp::path::param::<Uuid>())
+        .and(user_filter.clone())
+        .and_then(|id, users| async move {
+            match get_user_profile_by_id(users, id).await {
+                Ok(x) => Ok(warp::reply::json(&x)),
+                Err(x) => Err(warp::reject::custom(x)),
+            }
+        });
+
     let chat = warp::path("chat")
         .and(warp::ws())
         .and(user_filter.clone())
@@ -54,6 +69,7 @@ async fn main() {
     let routes = chat
         .or(register)
         .or(get_user_key)
+        .or(get_user_by_id_filter)
         .recover(response_error_handler);
 
     let service = warp::service(routes);
@@ -75,26 +91,6 @@ async fn main() {
 
     println!("Starting server at {address:?}:{port}");
     server.serve(make_svc).await.unwrap();
-}
-
-/// Endpoint to register a user.
-/// Takes a `Register` in its request body with the necessary information
-/// about the client to register.
-async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
-    let id = Uuid::new_v4();
-    let user = User::new(id, register.username().clone(), register.key_info().clone());
-    users.write().await.insert(id, user);
-
-    println!(
-        "User '{username}' registered with id: '{id}'",
-        username = register.username()
-    );
-
-    Ok(warp::reply::with_status(
-        serde_json::to_string(&RegisterResponse::new(id))
-            .expect("serialization in register failed"),
-        StatusCode::OK,
-    ))
 }
 
 async fn on_connection(ws: WebSocket, users: Users) {

@@ -1,3 +1,5 @@
+pub mod user;
+
 use std::convert::Infallible;
 
 use chat_core::{requests::PreKeyBundleRequest, x3dh::PreKeyBundle};
