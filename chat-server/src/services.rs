@@ -8,7 +8,7 @@ use warp::{hyper::StatusCode, reject::Reject, reply, Rejection, Reply};
 
 use crate::Users;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ResponseError {
     UserNotFound(Uuid),
 }

@@ -11,7 +11,10 @@ use super::ResponseError;
 /// Endpoint to register a user.
 /// Takes a `Register` in its request body with the necessary information
 /// about the client to register.
-pub async fn register_user(register: Register, users: Users) -> Result<impl warp::Reply, Infallible> {
+pub async fn register_user(
+    register: Register,
+    users: Users,
+) -> Result<impl warp::Reply, Infallible> {
     let id = Uuid::new_v4();
     let user = User::new(id, register.username().clone(), register.key_info().clone());
     users.write().await.insert(id, user);
@@ -28,7 +31,7 @@ pub async fn register_user(register: Register, users: Users) -> Result<impl warp
     ))
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Profile {
     id: Uuid,
     username: String,
@@ -44,7 +47,7 @@ impl Reply for Profile {
 pub async fn get_user_profile_by_id(users: Users, id: Uuid) -> Result<Profile, ResponseError> {
     if let Some(user) = users.read().await.get(&id) {
         Ok(Profile {
-            id: id.clone(),
+            id,
             username: user.username.clone(),
         })
     } else {

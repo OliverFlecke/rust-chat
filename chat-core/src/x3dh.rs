@@ -46,13 +46,13 @@ pub enum DecryptionError {
 /// Decrypt a cipher text, given a shared secret and a nonce.
 pub fn decrypt(
     shared_secret: &SharedSecret,
-    cipher_text: &Vec<u8>,
+    cipher_text: &[u8],
     nonce: &Nonce,
 ) -> Result<Vec<u8>, DecryptionError> {
-    Ok(DryocSecretBox::from_bytes(cipher_text)
+    DryocSecretBox::from_bytes(cipher_text)
         .map_err(|_| DecryptionError::FailedToReadCipherText)?
         .decrypt_to_vec(nonce, shared_secret)
-        .map_err(|_| DecryptionError::InvalidSecret)?)
+        .map_err(|_| DecryptionError::InvalidSecret)
 }
 
 /// Helper method to compute Diffie-Hellman
@@ -120,7 +120,7 @@ impl IdentityKey {
         // public and secret key in one slice, as secret_key || public key.
         // Hence the secret key can be extracted by only getting the first KEY_LENGTH
         // bytes of the secret key property.
-        &self.key.secret_key[..KEY_LENGTH].as_array()
+        self.key.secret_key[..KEY_LENGTH].as_array()
     }
 
     /// Converts this ED25519 key to a x25519 key pair. This allows to use the
@@ -142,7 +142,7 @@ impl IdentityKey {
         crypto_sign_ed25519_pk_to_curve25519(&mut x25519_public_key, public_key.as_array())
             .expect("public key could not be converted");
 
-        PublicKey::from(dryoc::dryocbox::StackByteArray::from(x25519_public_key))
+        x25519_public_key.into()
     }
 
     /// Sign a message (array of bytes) with the identity key.
@@ -159,7 +159,7 @@ impl IdentityKey {
 
 /// Represents a public pre-key, along with its signature, which can be verified
 /// by supplying the public part of the signing key.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SignedPreKey {
     public_key: PublicKey,
     signature: Vec<u8>,
@@ -243,7 +243,7 @@ impl KeyStore {
         let (shared_secret, _) = kdf(context, msg.subkey, Some(msg.kdf_context));
 
         (
-            decrypt(&shared_secret.as_array(), &msg.cipher_text, &msg.nonce)
+            decrypt(shared_secret.as_array(), &msg.cipher_text, &msg.nonce)
                 .expect("decryption failed"),
             *shared_secret.as_array(),
         )
@@ -289,6 +289,10 @@ impl KeyStore {
     }
 }
 
+pub enum PublishingKeyError {
+    CorruptBytes,
+    InvalidSignature,
+}
 /// Represents the set of public keys for a client.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PublishingKey {
@@ -307,13 +311,13 @@ impl PublishingKey {
     }
 
     /// Verify a slice of signed bytes by the public identity key in self.
-    pub fn verify(&self, signed_bytes: &[u8]) -> Result<Message, ()> {
+    pub fn verify(&self, signed_bytes: &[u8]) -> Result<Message, PublishingKeyError> {
         let msg = SignedMessage::<Signature, Message>::from_bytes(signed_bytes)
-            .expect("signature cannot be created from bytes");
+            .map_err(|_| PublishingKeyError::CorruptBytes)?;
 
         match msg.verify(&self.public_identity_key) {
             Ok(()) => Ok(msg.into_parts().1),
-            Err(_) => Err(()),
+            Err(_) => Err(PublishingKeyError::InvalidSignature),
         }
     }
 
@@ -344,7 +348,7 @@ impl From<KeyStore> for PublishingKey {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PreKeyBundle {
     identity_public_key: sign::PublicKey,
     signed_pre_key: SignedPreKey,
@@ -395,7 +399,7 @@ impl InitialMessage {
 
         let subkey = 0;
         let (shared_secret, kdf_context) = kdf(context, subkey, None);
-        let (cipher_text, nonce) = encrypt_data(&shared_secret.as_array(), message, None);
+        let (cipher_text, nonce) = encrypt_data(shared_secret.as_array(), message, None);
 
         Ok((
             InitialMessage {

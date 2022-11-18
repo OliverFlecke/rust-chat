@@ -172,7 +172,7 @@ impl Chat {
             let username = user.read().await.username().clone();
 
             Chat::write_prompt(&username);
-            while let Ok(_) = stdin.read_line(&mut user_input) {
+            while stdin.read_line(&mut user_input).is_ok() {
                 if user_input.starts_with('/') {
                     command_handler(&user_input, &tx, &client, &user).await
                 } else {
@@ -207,7 +207,7 @@ impl Chat {
                                 }
                                 ChatContext::General(context) => {
                                     let (cipher_text, nonce) =
-                                        encrypt_data(&context.shared_secret.into(), text, None);
+                                        encrypt_data(&context.shared_secret, text, None);
                                     let text_msg = TextMsg { nonce, cipher_text };
                                     (
                                         serde_json::to_vec(&text_msg)
@@ -249,10 +249,7 @@ impl Chat {
     pub async fn disconnect(tx: &Arc<Mutex<WebSocketWriteHalf>>) {
         let mut tx = tx.lock().await;
         match tx.close(None).await {
-            Ok(()) => {
-                println!("Disconnected");
-                return;
-            }
+            Ok(()) => println!("Disconnected"),
             Err(e) => eprintln!("Unable to disconnect: {e}"),
         };
     }
@@ -270,7 +267,7 @@ impl Chat {
 }
 
 async fn command_handler(
-    user_input: &String,
+    user_input: &str,
     tx: &Arc<Mutex<WebSocketWriteHalf>>,
     client: &Arc<RwLock<Client>>,
     user: &Arc<RwLock<User>>,

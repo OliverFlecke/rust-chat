@@ -37,7 +37,7 @@ pub async fn connect_and_authenticate(
         content.extend_from_slice(nonce);
         content.extend_from_slice(user.username().as_bytes());
 
-        let msg = LoginMessage::new(user.id().clone(), user.keystore().sign(&content));
+        let msg = LoginMessage::new(*user.id(), user.keystore().sign(&content));
         tx.lock()
             .await
             .send_binary(serde_json::to_vec(&msg).unwrap())
