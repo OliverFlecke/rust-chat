@@ -2,6 +2,7 @@ use std::convert::Infallible;
 
 use crate::{User, Users};
 use chat_core::requests::{ProfileResponse, Register, RegisterResponse};
+use dryoc::types::ByteArray;
 use uuid::Uuid;
 use warp::hyper::StatusCode;
 
@@ -38,7 +39,11 @@ pub async fn get_user_profile_by_id(
     println!("Lookup user '{id}'");
 
     match users.read().await.get(&id) {
-        Some(user) => Ok(ProfileResponse::new(id, user.username().to_owned())),
+        Some(user) => Ok(ProfileResponse::new(
+            id,
+            user.username().to_owned(),
+            Vec::from(*user.key_info().get_public_identity_key().as_array()),
+        )),
         None => Err(ResponseError::UserNotFound(id.to_owned())),
     }
 }
@@ -58,12 +63,19 @@ mod test {
         let username: String = Faker.fake::<String>();
         let user = User::new(id, username.clone(), PublishingKey::gen_fake());
         let users = Users::default();
-        users.write().await.insert(id, user);
+        users.write().await.insert(id, user.clone());
 
         // Act
         let actual = get_user_profile_by_id(users, id).await;
         assert!(actual.is_ok());
-        assert_eq!(actual.unwrap(), ProfileResponse::new(id, username));
+        assert_eq!(
+            actual.unwrap(),
+            ProfileResponse::new(
+                id,
+                username,
+                Vec::from(*user.key_info().get_public_identity_key().as_array())
+            )
+        );
     }
 
     #[tokio::test]

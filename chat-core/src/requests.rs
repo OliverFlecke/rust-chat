@@ -38,4 +38,5 @@ pub struct PreKeyBundleRequest {
 pub struct ProfileResponse {
     id: Uuid,
     username: String,
+    public_key: Vec<u8>,
 }

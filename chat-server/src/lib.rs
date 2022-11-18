@@ -12,7 +12,7 @@ pub mod services;
 
 pub type Users = Arc<RwLock<HashMap<Uuid, User>>>;
 
-#[derive(Debug, Getters)]
+#[derive(Debug, Clone, Getters)]
 pub struct User {
     id: Uuid,
     username: String,
