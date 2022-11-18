@@ -10,6 +10,7 @@ use chat_core::{
     x3dh::{decrypt, encrypt_data, InitialMessage, PreKeyBundle, NONCE_SIZE},
     ChatMessage, Msg, MsgType,
 };
+use colorize::AnsiColor;
 use dryoc::types::ByteArray;
 use serde::{Deserialize, Serialize};
 use signal_hook::low_level::exit;
@@ -282,7 +283,7 @@ impl Chat {
     }
 
     fn write_message(sender: &str, msg: &String) {
-        println!("\r{sender}: {msg}");
+        println!("{}", format!("\r{sender}: {msg}").cyan());
     }
 }
 
