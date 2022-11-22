@@ -12,6 +12,9 @@ impl Server {
     }
 
     pub async fn get_users(&self) -> Result<Vec<ProfileResponse>, ()> {
-        todo!()
+        match reqwest::get(format!("http://{}/user", self.host)).await {
+            Ok(x) => Ok(serde_json::from_str(&x.text().await.unwrap()).unwrap()),
+            Err(_) => Err(()),
+        }
     }
 }

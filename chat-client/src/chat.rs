@@ -299,11 +299,28 @@ async fn command_handler(
         Some("/public") => show_user_public_key(user).await,
         Some("/show") => show_info_of_current_connection(client).await,
         Some("/connect") => connect_to_user(client, splits).await,
+        Some("/list") => list_active_users(client).await,
 
         // Unknown commads
         Some(x) => eprintln!("Unknown command {x}"),
         None => eprintln!("No command"),
     };
+}
+
+async fn list_active_users(client: &Arc<RwLock<Client>>) {
+    match client.read().await.server.get_users().await {
+        Ok(users) => {
+            users.iter().for_each(|u| {
+                print!(
+                    "User: \t\t{name}\nid: \t\t{id}\nPublic key: \t{public_key}\n\n",
+                    name = u.username(),
+                    id = u.id(),
+                    public_key = hex::encode(u.public_key())
+                );
+            });
+        }
+        Err(_) => println!("Unable to get active users"),
+    }
 }
 
 async fn connect_to_user<'a>(client: &Arc<RwLock<Client>>, mut splits: std::str::Split<'a, char>) {
