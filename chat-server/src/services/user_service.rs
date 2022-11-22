@@ -2,7 +2,6 @@ use std::convert::Infallible;
 
 use crate::{User, Users};
 use chat_core::requests::{ProfileResponse, Register, RegisterResponse};
-use dryoc::types::ByteArray;
 use uuid::Uuid;
 use warp::hyper::StatusCode;
 
@@ -39,13 +38,19 @@ pub async fn get_user_profile_by_id(
     println!("Lookup user '{id}'");
 
     match users.read().await.get(&id) {
-        Some(user) => Ok(ProfileResponse::new(
-            id,
-            user.username().to_owned(),
-            Vec::from(*user.key_info().get_public_identity_key().as_array()),
-        )),
+        Some(user) => Ok(user.into()),
         None => Err(ResponseError::UserNotFound(id.to_owned())),
     }
+}
+
+/// Get all the users' profiles.
+pub async fn get_all_users(users: Users) -> Result<Vec<ProfileResponse>, ResponseError> {
+    Ok(users
+        .read()
+        .await
+        .values()
+        .map(|user| user.into())
+        .collect())
 }
 
 #[cfg(test)]
@@ -73,7 +78,7 @@ mod test {
             ProfileResponse::new(
                 id,
                 username,
-                Vec::from(*user.key_info().get_public_identity_key().as_array())
+                Vec::from(*user.key_info().get_public_identity_key_as_slice())
             )
         );
     }

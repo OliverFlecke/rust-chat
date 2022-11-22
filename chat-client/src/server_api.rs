@@ -10,4 +10,8 @@ impl Server {
             Err(_) => Err(()),
         }
     }
+
+    pub async fn get_users(&self) -> Result<Vec<ProfileResponse>, ()> {
+        todo!()
+    }
 }

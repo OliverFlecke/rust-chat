@@ -306,6 +306,10 @@ impl PublishingKey {
         &self.public_identity_key
     }
 
+    pub fn get_public_identity_key_as_slice(&self) -> &[u8; KEY_LENGTH] {
+        &self.public_identity_key.as_array()
+    }
+
     pub fn one_time_pre_keys_len(&self) -> usize {
         self.one_time_pre_keys.len()
     }

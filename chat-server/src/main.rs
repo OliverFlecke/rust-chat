@@ -4,11 +4,12 @@ use chat_server::{
     login::handle_login,
     services::{
         get_pre_key_bundle_for_user, response_error_handler,
-        user_service::{get_user_profile_by_id, register_user},
+        user_service::{get_all_users, get_user_profile_by_id, register_user},
+        ResponseError,
     },
     Users,
 };
-use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use futures_util::{Future, SinkExt, StreamExt, TryFutureExt};
 use listenfd::ListenFd;
 use std::convert::Infallible;
 use tokio::{
@@ -42,11 +43,8 @@ async fn main() {
         .and(warp::body::content_length_limit(1024))
         .and(warp::body::json())
         .and(user_filter.clone())
-        .and_then(|request: PreKeyBundleRequest, users| async move {
-            match get_pre_key_bundle_for_user(request, users).await {
-                Ok(x) => Ok(warp::reply::json(&x)),
-                Err(x) => Err(warp::reject::custom(x)),
-            }
+        .and_then(|request: PreKeyBundleRequest, users| {
+            json_or_error(get_pre_key_bundle_for_user(request, users))
         });
 
     // GET /user/:id
@@ -54,12 +52,13 @@ async fn main() {
         .and(warp::path("user"))
         .and(warp::path::param::<Uuid>())
         .and(user_filter.clone())
-        .and_then(|id, users| async move {
-            match get_user_profile_by_id(users, id).await {
-                Ok(x) => Ok(warp::reply::json(&x)),
-                Err(x) => Err(warp::reject::custom(x)),
-            }
-        });
+        .and_then(|id, users| json_or_error(get_user_profile_by_id(users, id)));
+
+    // GET /user
+    let get_all_users = warp::get()
+        .and(warp::path("user"))
+        .and(user_filter.clone())
+        .and_then(|users| json_or_error(get_all_users(users)));
 
     let chat = warp::path("chat")
         .and(warp::ws())
@@ -69,6 +68,7 @@ async fn main() {
     let routes = chat
         .or(register)
         .or(get_user_key)
+        .or(get_all_users)
         .or(get_user_by_id_filter)
         .recover(response_error_handler);
 
@@ -91,6 +91,18 @@ async fn main() {
 
     println!("Starting server at {address:?}:{port}");
     server.serve(make_svc).await.unwrap();
+}
+
+async fn json_or_error<T>(
+    filter: impl Future<Output = Result<T, ResponseError>>,
+) -> Result<impl warp::Reply, warp::Rejection>
+where
+    T: serde::Serialize,
+{
+    match filter.await {
+        Ok(res) => Ok(warp::reply::json(&res)),
+        Err(x) => Err(warp::reject::custom(x)),
+    }
 }
 
 async fn on_connection(ws: WebSocket, users: Users) {

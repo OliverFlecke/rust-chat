@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use chat_core::x3dh::PublishingKey;
+use chat_core::{requests::ProfileResponse, x3dh::PublishingKey};
 use derive_getters::Getters;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
@@ -38,5 +38,15 @@ impl User {
     /// Get this users key info as mutable.
     pub fn key_info_mut(&mut self) -> &mut PublishingKey {
         &mut self.key_info
+    }
+}
+
+impl From<&User> for ProfileResponse {
+    fn from(user: &User) -> Self {
+        ProfileResponse::new(
+            user.id().to_owned(),
+            user.username().to_owned(),
+            Vec::from(*user.key_info().get_public_identity_key_as_slice()),
+        )
     }
 }
