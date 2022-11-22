@@ -293,54 +293,76 @@ async fn command_handler(
     client: &Arc<RwLock<Client>>,
     user: &Arc<RwLock<User>>,
 ) {
-    let mut client = client.write().await;
     let mut splits = user_input.trim_end().split(' ');
     match splits.next() {
-        Some("/exit") => {
-            Chat::disconnect(tx).await;
-            exit(0);
-        }
-        Some("/public") => {
-            println!(
-                "Public key: {key}",
-                key = hex::encode(
-                    user.read()
-                        .await
-                        .keystore
-                        .get_identity_key()
-                        .get_public_key()
-                        .as_array()
-                )
-            );
-        }
-        // Connect to a user
-        Some("/connect") => {
-            if let Some(r) = splits.next().map(|x| x.trim_end().to_string()) {
-                match Uuid::from_str(r.as_str()) {
-                    Ok(id) => {
-                        match post_request_pre_bundle_for_user(client.server.host(), id).await {
-                            Ok(b) => {
-                                client
-                                    .others
-                                    .write()
-                                    .await
-                                    .insert(id, ChatContext::Initial(b));
-                                client.set_connection(id);
-                            }
-                            Err(_) => eprintln!("User not found"),
-                        };
-                    }
-                    Err(_) => {
-                        println!("Receiver has to be a uuid");
-                    }
-                }
-            }
-        }
+        Some("/exit") => quit(tx).await,
+        Some("/public") => show_user_public_key(user).await,
+        Some("/show") => show_info_of_current_connection(client).await,
+        Some("/connect") => connect_to_user(client, splits).await,
 
         // Unknown commads
         Some(x) => eprintln!("Unknown command {x}"),
         None => eprintln!("No command"),
     };
+}
+
+async fn connect_to_user<'a>(client: &Arc<RwLock<Client>>, mut splits: std::str::Split<'a, char>) {
+    let mut client = client.write().await;
+    if let Some(r) = splits.next().map(|x| x.trim_end().to_string()) {
+        match Uuid::from_str(r.as_str()) {
+            Ok(id) => {
+                match post_request_pre_bundle_for_user(client.server.host(), id).await {
+                    Ok(b) => {
+                        client
+                            .others
+                            .write()
+                            .await
+                            .insert(id, ChatContext::Initial(b));
+                        client.set_connection(id);
+                    }
+                    Err(_) => eprintln!("User not found"),
+                };
+            }
+            Err(_) => {
+                println!("Receiver has to be a uuid");
+            }
+        }
+    }
+}
+
+async fn show_info_of_current_connection(client: &Arc<RwLock<Client>>) {
+    let client = client.read().await;
+    if let Some(other_user) = client.current_connection {
+        match client.others.read().await.get(&other_user) {
+            Some(ChatContext::General(state)) => println!(
+                "Connected to: {}\nPublic key: {}",
+                state.profile.username(),
+                hex::encode(state.profile.public_key())
+            ),
+            _ => println!("Not yet connected with other user"),
+        }
+    } else {
+        println!("Not connected to any user");
+    }
+}
+
+async fn quit(tx: &Arc<Mutex<WebSocketWriteHalf>>) {
+    Chat::disconnect(tx).await;
+    exit(0);
+}
+
+async fn show_user_public_key(user: &Arc<RwLock<User>>) {
+    println!(
+        "Public key: {key}",
+        key = hex::encode(
+            user.read()
+                .await
+                .keystore
+                .get_identity_key()
+                .get_public_key()
+                .as_array()
+        )
+    );
 }
 
 #[derive(Debug, Serialize, Deserialize)]
